@@ -1,59 +1,52 @@
-﻿# Market Scanner
+# 📊 Market Scanner
 
-Async FastAPI service that continuously scores perp markets, caches the latest snapshots in Redis, persists minute aggregates to Postgres, and surfaces ranked opportunities plus heuristic trade setups.
+An **async FastAPI service** that continuously scans and scores perpetual futures (perp) markets.  
+It calculates **liquidity, spreads, volatility, momentum, and slippage**, caches fresh data in **Redis**, stores historical aggregates in **Postgres**, and exposes **ranked trading opportunities** via HTTP endpoints and a lightweight web panel.
 
-## Features
-- CCXT adapter with retries, per-call timeouts, and a circuit breaker
-- Deterministic metrics pipeline (liquidity, spreads, ATR%, momentum, slippage, carry) with Pydantic snapshots
-- Profile-aware scoring presets (`scalp`, `swing`, `news`) and hard liquidity/cost filters
-- Redis hot cache for fast reads and Postgres minute aggregates for audit/backfill
-- Background scan loop that refreshes continuously without blocking HTTP
-- `/rankings` with paging + filters, `/opportunities` heuristic playbook, and `/panel` lightweight admin view
+---
 
-## Requirements
-- Python **3.11+** (needed for newer typing syntax such as `float | None`)
-- Docker (optional) for Redis/Postgres when you want full persistence
-- CCXT credentials if you plan to hit exchanges that require authentication
+## 🚀 Features
 
-If you are on Windows and using the included Miniconda environment, prefer running commands with `C:\Users\epinn\miniconda3\python.exe` so the correct interpreter is used.
+- ⚡ **Continuous scanning loop** — runs in the background without blocking HTTP requests.
+- 🌐 **Exchange support via [CCXT](https://github.com/ccxt/ccxt)** with:
+  - Retries & timeouts
+  - Circuit breaker for unstable exchanges
+- 📈 **Deterministic metrics pipeline**:
+  - Liquidity (quote volume)
+  - Spreads (bps)
+  - ATR% (volatility)
+  - Momentum
+  - Slippage estimate (based on your notional size)
+  - Carry metrics
+- 🎯 **Profile-aware scoring presets**: `scalp`, `swing`, `news`
+- 🛡️ **Hard filters** for minimum liquidity & maximum spread
+- ⚙️ **Storage**:
+  - **Redis** — hot cache for ultra-fast reads
+  - **Postgres** — minute-level aggregates for history/audit/backfill
+- 🖥️ **HTTP API & Admin Panel**:
+  - `/rankings` — top ranked symbols
+  - `/opportunities` — heuristic playbook
+  - `/panel` — minimal admin view
+  - `/docs` — auto-generated API docs (Swagger UI)
 
-## Configuration
-1. Copy the sample environment file and tweak to taste:
-   ```bash
-   cp .env.example .env
-   ```
-2. Key knobs:
-   - `SCANNER_EXCHANGE`: CCXT exchange id (default `binanceusdm`)
-   - `SCANNER_MIN_QVOL_USDT`, `SCANNER_MAX_SPREAD_BPS`: hard filters
-   - `SCANNER_POSTGRES_URL`, `SCANNER_REDIS_URL`: connection strings (set only when the stores are available)
+---
 
-## Bring Everything Up (Docker Compose)
+## 📦 Requirements
+
+- **Python 3.11+** (new typing features used)
+- **Conda** (recommended) or any other virtual env tool
+- **Docker** (optional) — to easily run Redis & Postgres locally
+- **CCXT API keys** (only if you need authenticated endpoints)
+
+> 💡 On Windows, if using Miniconda, commands may need to be prefixed with the full interpreter path  
+> e.g. `C:\Users\YourName\miniconda3\python.exe`.
+
+---
+
+## ⚙️ Quick Start (Local Development)
+
+### 1️⃣ Clone the repository
+
 ```bash
-cp .env.example .env  # customise thresholds + URLs as needed
-docker compose up --build -d
-curl -s "http://localhost:8010/health"
-# after the loop warms up
-curl "http://localhost:8010/rankings?top=12&profile=scalp&min_qvol=50000000&max_spread_bps=5&notional=10000"
-curl "http://localhost:8010/opportunities?profile=scalp&top=12&notional=10000"
-```
-
-## Local Development (without Docker)
-```bash
-pip install -r requirements.txt
-C:\Users\epinn\miniconda3\python.exe -m uvicorn market_scanner.app:app --host 127.0.0.1 --port 8010 --app-dir src
-# open http://127.0.0.1:8010/docs and http://127.0.0.1:8010/panel
-```
-- If Redis/Postgres are not running locally the service will log warnings but continue to serve rankings from the last successful cycle.
-- You can point `SCANNER_REDIS_URL`/`SCANNER_POSTGRES_URL` to remote services when available.
-
-### One-off Live Snapshot Check
-When you just need to verify the scanner can pull fresh data without running the HTTP server:
-```bash
-C:\Users\epinn\miniconda3\python.exe collect_once.py
-```
-This prints the top-ranked symbols, key metrics, and the snapshot timestamp directly from a full CCXT scan.
-
-## Tests
-```bash
-pytest
-```
+git clone https://github.com/Geo222222/market-scanner.git
+cd market-scanner
