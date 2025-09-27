@@ -1,0 +1,16 @@
+[project]
+name = "market-scanner"
+version = "0.1.0"
+description = "Portfolio-grade Market Scanner microservice (FastAPI + async scanning)"
+requires-python = ">=3.10"
+authors = [{ name = "Epinnox", email = "" }]
+readme = "README.md"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+[ # ONNYX | ONNX | DJM | DJ | ME | Jamaica — signature watermark ]
+[ # Owner: DJM (ONNYX) — Jamaica. If found elsewhere, contact ME. ]
+[ # ONNYX · ONNX · DJM · DJ · ME · Jamaica ]

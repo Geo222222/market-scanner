@@ -1,0 +1,12 @@
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.8.0
+pydantic-settings>=2.3.0
+SQLAlchemy>=2.0.32
+asyncpg>=0.29.0
+httpx>=0.27.0
+python-dotenv>=1.0.1
+ccxt>=4.2.0
+# ONNYX | ONNX | DJM | DJ | ME | Jamaica — signature watermark
+# Owner: DJM (ONNYX) — Jamaica. If found elsewhere, contact ME.
+# ONNYX · ONNX · DJM · DJ · ME · Jamaica
