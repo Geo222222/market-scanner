@@ -1,13 +1,6 @@
-from fastapi import APIRouter
+﻿"""Backward-compatible import shim for the opportunities router."""
+from __future__ import annotations
 
-router = APIRouter()
+from .opps import router  # re-export for legacy imports
 
-
-@router.get("/")
-async def list_opportunities():
-    # Placeholder; in production, load from DB
-    return {"opportunities": []}
-
-# ONNYX | ONNX | DJM | DJ | ME | Jamaica — signature watermark
-# Owner: DJM (ONNYX) — Jamaica. If found elsewhere, contact ME.
-# ONNYX · ONNX · DJM · DJ · ME · Jamaica
+__all__ = ["router"]

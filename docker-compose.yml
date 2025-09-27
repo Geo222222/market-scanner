@@ -1,21 +1,30 @@
-services:
+﻿services:
   api:
     build: .
     command: uvicorn market_scanner.app:app --host 0.0.0.0 --port 8010
     env_file: .env
     depends_on:
-      - db
+      - postgres
+      - redis
     ports:
       - "8010:8010"
 
-  db:
+  postgres:
     image: postgres:16
     environment:
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: scanner
+      POSTGRES_PASSWORD: scanner
       POSTGRES_DB: scanner
     ports:
       - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
 
-# ONNYX | ONNX | DJM | DJ | ME | Jamaica — signature watermark
-# Owner: DJM (ONNYX) — Jamaica. If found elsewhere, contact ME.
-# ONNYX · ONNX · DJM · DJ · ME · Jamaica
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+
+volumes:
+  pgdata:

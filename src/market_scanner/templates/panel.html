@@ -1,0 +1,93 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Market Scanner Panel</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 2rem; background: #0f172a; color: #e2e8f0; }
+      h1 { margin-bottom: 0.5rem; }
+      .controls { display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; }
+      button { padding: 0.5rem 1rem; background: #2563eb; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+      button:disabled { background: #475569; cursor: not-allowed; }
+      table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+      th, td { padding: 0.5rem; border-bottom: 1px solid #334155; text-align: left; }
+      th { background: #1e293b; }
+      .chips span { display: inline-flex; background: #1e293b; padding: 0.25rem 0.5rem; border-radius: 999px; margin-right: 0.5rem; font-size: 0.85rem; }
+      .status { font-size: 0.9rem; color: #94a3b8; }
+    </style>
+  </head>
+  <body>
+    <h1>Market Scanner Panel</h1>
+    <div class="controls">
+      <div class="chips">
+        <span id="profile-chip">Profile: {{ default_profile }}</span>
+        <span id="top-chip">Top: {{ default_top }}</span>
+        <span id="notional-chip">Notional: {{ default_notional }}</span>
+      </div>
+      <button id="refresh-btn">Refresh</button>
+      <span class="status" id="status"></span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Symbol</th>
+          <th>Score</th>
+          <th>Volume (USDT)</th>
+          <th>ATR %</th>
+          <th>Spread bps</th>
+          <th>Slip bps</th>
+          <th>Ret15%</th>
+          <th>Ret1%</th>
+        </tr>
+      </thead>
+      <tbody id="results"></tbody>
+    </table>
+    <script>
+      const defaultProfile = "{{ default_profile }}";
+      const defaultTop = {{ default_top }};
+      const defaultNotional = {{ default_notional }};
+      const statusEl = document.getElementById('status');
+      const resultsEl = document.getElementById('results');
+      const refreshBtn = document.getElementById('refresh-btn');
+
+      async function loadData() {
+        try {
+          refreshBtn.disabled = true;
+          statusEl.textContent = 'Loading…';
+          const response = await fetch(`/rankings?profile=${encodeURIComponent(defaultProfile)}&top=${defaultTop}&notional=${defaultNotional}`);
+          if (!response.ok) {
+            throw new Error(`Request failed with status ${response.status}`);
+          }
+          const payload = await response.json();
+          renderRows(payload.items || []);
+          statusEl.textContent = `Last updated: ${new Date(payload.ts).toLocaleTimeString()}`;
+        } catch (err) {
+          statusEl.textContent = `Error: ${err.message}`;
+          resultsEl.innerHTML = '';
+        } finally {
+          refreshBtn.disabled = false;
+        }
+      }
+
+      function renderRows(items) {
+        resultsEl.innerHTML = items
+          .map((item) => `
+            <tr>
+              <td>${item.symbol}</td>
+              <td>${item.score.toFixed(2)}</td>
+              <td>${Math.round(item.qvol_usdt).toLocaleString()}</td>
+              <td>${item.atr_pct.toFixed(2)}</td>
+              <td>${item.spread_bps.toFixed(2)}</td>
+              <td>${item.slip_bps.toFixed(2)}</td>
+              <td>${item.ret_15.toFixed(2)}</td>
+              <td>${item.ret_1.toFixed(2)}</td>
+            </tr>
+          `)
+          .join('');
+      }
+
+      refreshBtn.addEventListener('click', loadData);
+      document.addEventListener('DOMContentLoaded', loadData);
+    </script>
+  </body>
+</html>
