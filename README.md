@@ -1,14 +1,14 @@
-ï»¿# Advance Market Scanner (HTX USDT-M)
+# Advance Market Scanner (HTX USDT-M)
 
 Async FastAPI service that continuously ranks HTX USDT-margined perpetual swaps by risk-adjusted opportunity. The scanner ingests live market data via CCXT, computes liquidity/cost/volatility/momentum metrics, estimates manipulation risk, caches hot snapshots in Redis, and persists minute aggregates and rankings into Postgres.
 
 ## Core Highlights
-- **Risk-weighted scoring** â€“ profile-aware presets (`scalp`, `swing`, `news`) combine liquidity, ATR%, momentum, spread, and slippage with configurable carry inputs.
-- **Manipulation detection** â€“ heuristics + lightweight logistic model flag spoofing walls, liquidity vacuums, scam wicks, and funding/OI divergences. Each symbol carries a `manip_score` (0â€“100) and `manip_flags` list.
-- **HTX linear swaps only** â€“ auto-discovers active USDT-M perps, throttled by concurrency limits and a circuit breaker around CCXT.
-- **Persistence & caching** â€“ Redis serves the most recent rankings instantly while Postgres stores 1-minute aggregates and historical rankings for forensic replay.
-- **Observability** â€“ JSON structured logs per cycle plus a Prometheus `/metrics` endpoint (cycle duration, CCXT latency, cache hit ratio, error counters).
-- **Operator panel** â€“ minimal `/panel` view with live Top-N table, manipulation badges, and refresh-on-demand.
+- **Risk-weighted scoring** – profile-aware presets (`scalp`, `swing`, `news`) combine liquidity, ATR%, momentum, spread, and slippage with configurable carry inputs.
+- **Manipulation detection** – heuristics + lightweight logistic model flag spoofing walls, liquidity vacuums, scam wicks, and funding/OI divergences. Each symbol carries a manip_score (0–100) and manip_flags list.
+- **HTX linear swaps only** – auto-discovers active USDT-M perps, throttled by concurrency limits and a circuit breaker around CCXT.
+- **Persistence & caching** – Redis serves the most recent rankings instantly while Postgres stores 1-minute aggregates and historical rankings for forensic replay.
+- **Observability** – JSON structured logs per cycle plus a Prometheus `/metrics` endpoint (cycle duration, CCXT latency, cache hit ratio, error counters).
+- **Operator panel** – minimal `/panel` view with live Top-N table, manipulation badges, and refresh-on-demand.
 
 ## Requirements
 - Python **3.11+** (PEP 604 typing in use)
@@ -58,21 +58,21 @@ C:\Users\epinn\miniconda3\python.exe -m uvicorn market_scanner.app:app --host 12
 All settings can be overridden via environment variables or `.env` (see `.env.example`).
 
 ## Endpoints
-- `GET /health` â€“ readiness ping.
-- `GET /rankings` â€“ pageable, filterable rankings. Supports query params: `top`, `profile`, `min_qvol`, `max_spread_bps`, `notional`, `include_funding`, `include_basis`, `include_carry`, `max_manip_score`, `exclude_flags`.
-- `GET /opportunities` â€“ top-N idea list with side bias, ATR-derived stops/targets, confidence (penalised by manipulation risk).
-- `GET /panel` â€“ lightweight HTML view of the latest Top-N with flag badges.
-- `GET /metrics` â€“ Prometheus metrics (enabled when `SCANNER_METRICS_ENABLED=true`).
-- `WS /stream` â€“ heartbeat placeholder.
+- `GET /health` – readiness ping.
+- `GET /rankings` – pageable, filterable rankings. Supports query params: `top`, `profile`, `min_qvol`, `max_spread_bps`, `notional`, `include_funding`, `include_basis`, `include_carry`, `max_manip_score`, `exclude_flags`.
+- `GET /opportunities` – top-N idea list with side bias, ATR-derived stops/targets, confidence (penalised by manipulation risk).
+- `GET /panel` – lightweight HTML view of the latest Top-N with flag badges.
+- `GET /metrics` – Prometheus metrics (enabled when `SCANNER_METRICS_ENABLED=true`).
+- `WS /stream` – heartbeat placeholder.
 
 ## Manipulation Score
 Each symbol snapshot carries:
-- `manip_score` (0â€“100): higher means more manipulation risk and is subtracted from the base score.
+- `manip_score` (0–100): higher means more manipulation risk and is subtracted from the base score.
 - `manip_flags`: textual reasons (e.g., `spoofing_depth_imbalance`, `liquidity_vacuum`, `scam_wick`, `oi_price_divergence`).
 
 Flags come from a hybrid approach:
-1. **Rules** â€“ large top-of-book imbalances, shallow books vs notional, extreme wick/ATR ratios, funding & OI divergences.
-2. **Lightweight logistic model** â€“ engineered features (depth skew, wall ratio, wick ratio, OI delta, funding magnitude) convert to an additional probability-style score.
+1. **Rules** – large top-of-book imbalances, shallow books vs notional, extreme wick/ATR ratios, funding & OI divergences.
+2. **Lightweight logistic model** – engineered features (depth skew, wall ratio, wick ratio, OI delta, funding magnitude) convert to an additional probability-style score.
 
 `/rankings` can filter by `exclude_flags` or `max_manip_score`. `/opportunities` folds the manipulation penalty into confidence so high-risk names get deprioritized.
 

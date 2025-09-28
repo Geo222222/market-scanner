@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     scan_concurrency: int = Field(default=12, description="Maximum concurrent CCXT calls during scan.")
     scan_top_by_qvol: int = Field(default=60, description="Number of symbols to retain by quote volume before ranking.")
 
+    raw_retention_hours: int = Field(default=24, description="Retention for raw exchange messages in hours.")
+    bar_1s_retention_hours: int = Field(default=72, description="Retention for 1-second bars in hours.")
+    bar_5s_retention_days: int = Field(default=14, description="Retention for 5-second bars in days.")
+    bar_1m_retention_days: int = Field(default=60, description="Retention for 1-minute bars in days.")
+
     metrics_enabled: bool = Field(default=True, description="Expose Prometheus metrics endpoint.")
 
     @field_validator("postgres_url")

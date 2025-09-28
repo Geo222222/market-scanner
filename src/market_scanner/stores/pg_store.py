@@ -3,20 +3,69 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
-from typing import Any
+from datetime import datetime, timedelta, timezone
+from typing import Any, Iterable, Sequence
 
-from sqlalchemy import JSON, Column, DateTime, Float, MetaData, String, Table, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Column,
+    DateTime,
+    Float,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    UniqueConstraint,
+    delete,
+)
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
 from ..config import get_settings
 from ..core.metrics import SymbolSnapshot
+from ..feeds.events import FeedEvent
+from ..storage.bars import Bar
 
 LOGGER = logging.getLogger(__name__)
 
 _METADATA = MetaData()
+
+RAW_MESSAGES = Table(
+    "raw_messages",
+    _METADATA,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("topic", String(160), nullable=False),
+    Column("symbol", String(80), nullable=True, index=True),
+    Column("event_type", String(32), nullable=False, index=True),
+    Column("sequence", BigInteger, nullable=True),
+    Column("recv_ts", DateTime(timezone=True), nullable=False, index=True),
+    Column("payload", JSON, nullable=False),
+    Column("raw", JSON, nullable=True),
+)
+
+
+def _bars_table(name: str, constraint: str) -> Table:
+    return Table(
+        name,
+        _METADATA,
+        Column("symbol", String(80), primary_key=True),
+        Column("ts", DateTime(timezone=True), primary_key=True),
+        Column("open", Float, nullable=False),
+        Column("high", Float, nullable=False),
+        Column("low", Float, nullable=False),
+        Column("close", Float, nullable=False),
+        Column("volume_base", Float, nullable=False),
+        Column("volume_quote", Float, nullable=False),
+        Column("trade_count", Integer, nullable=False),
+        UniqueConstraint("symbol", "ts", name=constraint),
+    )
+
+
+BARS_1S = _bars_table("bars_1s", "bars_1s_symbol_ts_key")
+BARS_5S = _bars_table("bars_5s", "bars_5s_symbol_ts_key")
+BARS_1M_OHLC = _bars_table("bars_1m_ohlc", "bars_1m_ohlc_symbol_ts_key")
 
 BARS_1M = Table(
     "bars_1m",
@@ -49,6 +98,12 @@ RANKINGS = Table(
     Column("inputs_json", JSON, nullable=False),
     UniqueConstraint("symbol", "ts", "profile", name="rankings_symbol_ts_profile_key"),
 )
+
+BAR_TABLES = {
+    "1s": BARS_1S,
+    "5s": BARS_5S,
+    "1m": BARS_1M_OHLC,
+}
 
 _ENGINE: AsyncEngine | None = None
 _SESSION_FACTORY: sessionmaker[AsyncSession] | None = None
@@ -88,10 +143,68 @@ async def _ensure_schema() -> None:
 
 def _normalise_ts(ts: datetime) -> datetime:
     if ts.tzinfo is None:
-        from datetime import timezone
-
         return ts.replace(tzinfo=timezone.utc)
     return ts
+
+
+async def insert_raw_messages(events: Sequence[FeedEvent]) -> None:
+    if not events:
+        return
+    try:
+        session = await _get_session()
+    except RuntimeError as exc:
+        LOGGER.warning("Postgres unavailable for insert_raw_messages: %s", exc)
+        return
+    rows = [
+        {
+            "topic": event.topic,
+            "symbol": event.symbol,
+            "event_type": event.event_type.value,
+            "sequence": event.sequence,
+            "recv_ts": _normalise_ts(event.recv_ts),
+            "payload": json.loads(json.dumps(event.payload, default=str)),
+            "raw": json.loads(json.dumps(event.raw, default=str)),
+        }
+        for event in events
+    ]
+    stmt = RAW_MESSAGES.insert().values(rows)
+    async with session:
+        await session.execute(stmt)
+        await session.commit()
+
+
+async def insert_timeframe_bars(timeframe: str, bars: Sequence[Bar]) -> None:
+    if not bars:
+        return
+    table = BAR_TABLES.get(timeframe)
+    if table is None:
+        raise ValueError(f"Unsupported timeframe '{timeframe}'. Expected one of {list(BAR_TABLES)}")
+    try:
+        session = await _get_session()
+    except RuntimeError as exc:
+        LOGGER.warning("Postgres unavailable for insert_timeframe_bars(%s): %s", timeframe, exc)
+        return
+    rows = [
+        {
+            "symbol": bar.symbol,
+            "ts": _normalise_ts(bar.ts),
+            "open": float(bar.open),
+            "high": float(bar.high),
+            "low": float(bar.low),
+            "close": float(bar.close),
+            "volume_base": float(bar.volume_base),
+            "volume_quote": float(bar.volume_quote),
+            "trade_count": int(bar.trade_count),
+        }
+        for bar in bars
+    ]
+    stmt = insert(table).values(rows)
+    update_cols = {key: stmt.excluded[key] for key in rows[0] if key not in {"symbol", "ts"}}
+    async with session:
+        await session.execute(
+            stmt.on_conflict_do_update(index_elements=[table.c.symbol, table.c.ts], set_=update_cols)
+        )
+        await session.commit()
 
 
 async def insert_minute_agg(snapshot: SymbolSnapshot, close: float) -> None:
@@ -162,3 +275,37 @@ async def bulk_insert_rankings(ts: datetime, profile: str, rows: list[dict[str, 
             )
         )
         await session.commit()
+
+
+async def prune_expired_data(now: datetime | None = None) -> None:
+    now = now or datetime.now(timezone.utc)
+    try:
+        session = await _get_session()
+    except RuntimeError as exc:
+        LOGGER.warning("Postgres unavailable for prune_expired_data: %s", exc)
+        return
+    settings = get_settings()
+    raw_cutoff = now - timedelta(hours=settings.raw_retention_hours)
+    bar_1s_cutoff = now - timedelta(hours=settings.bar_1s_retention_hours)
+    bar_5s_cutoff = now - timedelta(days=settings.bar_5s_retention_days)
+    bar_1m_cutoff = now - timedelta(days=settings.bar_1m_retention_days)
+    statements = [
+        delete(RAW_MESSAGES).where(RAW_MESSAGES.c.recv_ts < raw_cutoff),
+        delete(BARS_1S).where(BARS_1S.c.ts < bar_1s_cutoff),
+        delete(BARS_5S).where(BARS_5S.c.ts < bar_5s_cutoff),
+        delete(BARS_1M_OHLC).where(BARS_1M_OHLC.c.ts < bar_1m_cutoff),
+        delete(BARS_1M).where(BARS_1M.c.ts < bar_1m_cutoff),
+    ]
+    async with session:
+        for stmt in statements:
+            await session.execute(stmt)
+        await session.commit()
+
+
+__all__ = [
+    "insert_raw_messages",
+    "insert_timeframe_bars",
+    "insert_minute_agg",
+    "bulk_insert_rankings",
+    "prune_expired_data",
+]
