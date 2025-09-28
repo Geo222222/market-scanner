@@ -16,10 +16,12 @@ async def main() -> None:
     print(f"Fetched bundles: {len(bundles)}")
     print(f"Ranked symbols: {len(ranked)}")
     for snap in ranked[:5]:
+        flags = ",".join(snap.manip_flags or []) if snap.manip_flags else "none"
+        manip_display = f"manip={snap.manip_score:.2f} ({flags})" if snap.manip_score is not None else "manip=—"
         print(
             f"{snap.symbol:<15} score={snap.score:.2f} qvol={snap.qvol_usdt:,.0f} "
             f"spread={snap.spread_bps:.2f}bps slip={snap.slip_bps:.2f}bps "
-            f"ATR={snap.atr_pct:.2f}% ret1={snap.ret_1:.2f}% ret15={snap.ret_15:.2f}%"
+            f"ATR={snap.atr_pct:.2f}% ret1={snap.ret_1:.2f}% ret15={snap.ret_15:.2f}% {manip_display}"
         )
     if ranked:
         ts = ranked[0].ts

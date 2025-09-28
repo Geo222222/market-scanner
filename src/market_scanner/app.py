@@ -1,14 +1,19 @@
 ﻿from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from .config import get_settings
 from .jobs.loop import loop as scanner_loop
 from .routers import health, symbols, rankings, opportunities, stream
+
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 settings = get_settings()
 
@@ -35,8 +40,14 @@ async def render_panel(request: Request):
         "panel.html",
         {
             "request": request,
-            "default_profile": settings.ranking_profile_default,
+            "default_profile": settings.profile_default,
             "default_top": settings.topn_default,
             "default_notional": settings.notional_test,
         },
     )
+
+
+if settings.metrics_enabled:
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics_endpoint() -> Response:
+        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

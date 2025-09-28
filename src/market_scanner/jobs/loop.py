@@ -1,13 +1,14 @@
-﻿"""Background scanning loop that orchestrates data collection and scoring."""
+"""Background scanning loop that orchestrates data collection and scoring."""
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Mapping
 
 from ..adapters.ccxt_adapter import AdapterError, CCXTAdapter
 from ..config import get_settings
@@ -23,6 +24,8 @@ from ..core.metrics import (
     top5_depth_usdt,
 )
 from ..core.scoring import rank
+from ..manip.detector import detect_manipulation
+from ..observability import record_cycle
 from ..stores.pg_store import bulk_insert_rankings, insert_minute_agg
 from ..stores.redis_store import cache_rankings, cache_snapshots
 
@@ -36,22 +39,38 @@ _MARKETS_TS: float | None = None
 class SnapshotBundle:
     snapshot: SymbolSnapshot
     close: float
+    manip_features: dict[str, float]
 
 
 def _chunk(symbols: Sequence[str], size: int) -> list[list[str]]:
     return [list(symbols[i : i + size]) for i in range(0, len(symbols), max(1, size))]
 
 
+def _is_usdt_perp(data: Mapping[str, Any]) -> bool:
+    if not (data.get("swap") or data.get("contract") or data.get("type") == "swap"):
+        return False
+    settle = str(data.get("settle") or data.get("quote") or "").upper()
+    if settle and settle != "USDT":
+        return False
+    linear = data.get("linear")
+    if linear is False:
+        return False
+    contract_type = str(data.get("info", {}).get("contractType", "")).lower()
+    if contract_type and "swap" not in contract_type:
+        return False
+    return True
+
+
 async def _load_symbols(adapter: CCXTAdapter) -> list[str]:
     global _MARKETS_CACHE, _MARKETS_TS
     settings = get_settings()
     now = time.time()
-    if not _MARKETS_CACHE or _MARKETS_TS is None or now - _MARKETS_TS > settings.markets_cache_ttl_s:
+    if not _MARKETS_CACHE or _MARKETS_TS is None or now - _MARKETS_TS > settings.markets_cache_ttl_sec:
         markets = await adapter.load_markets()
         filtered = {
             sym: data
             for sym, data in markets.items()
-            if (data.get("type") == "swap" or data.get("swap") or data.get("contract"))
+            if _is_usdt_perp(data)
         }
         _MARKETS_CACHE = filtered
         _MARKETS_TS = now
@@ -132,8 +151,21 @@ async def _build_snapshot(adapter: CCXTAdapter, symbol: str) -> SnapshotBundle |
         except (TypeError, ValueError):
             oi_value = None
     basis = basis_bp(ticker.get("last"), _extract_spot_reference(ticker))
-    ts = datetime.now(timezone.utc)
     close_price = closes[-1] if closes else float(ticker.get("last") or 0.0)
+    ts = datetime.now(timezone.utc)
+
+    manip_result = detect_manipulation(
+        symbol=symbol,
+        orderbook=orderbook,
+        ohlcv=ohlcv,
+        close_price=close_price,
+        atr_pct_val=atr,
+        ret_1=momentum["ret_1"],
+        ret_15=momentum["ret_15"],
+        funding_rate=funding_pct,
+        open_interest=oi_value,
+        timestamp=ts.timestamp(),
+    )
 
     snapshot = SymbolSnapshot(
         symbol=symbol,
@@ -147,15 +179,17 @@ async def _build_snapshot(adapter: CCXTAdapter, symbol: str) -> SnapshotBundle |
         funding_8h_pct=funding_pct,
         open_interest=oi_value,
         basis_bps=basis,
+        manip_score=manip_result.score,
+        manip_flags=manip_result.flags or None,
         ts=ts,
     )
-    return SnapshotBundle(snapshot=snapshot, close=close_price)
+    return SnapshotBundle(snapshot=snapshot, close=close_price, manip_features=manip_result.features)
 
 
 async def _collect_snapshots(adapter: CCXTAdapter, symbols: list[str]) -> list[SnapshotBundle]:
     settings = get_settings()
     bundles: list[SnapshotBundle] = []
-    for chunk in _chunk(symbols, settings.job_chunk_size):
+    for chunk in _chunk(symbols, settings.scan_concurrency):
         tasks = [_build_snapshot(adapter, sym) for sym in chunk]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for sym, res in zip(chunk, results):
@@ -185,6 +219,8 @@ def _build_ranking_rows(snaps: list[SymbolSnapshot]) -> list[dict[str, Any]]:
                 "funding_8h_pct": snap.funding_8h_pct,
                 "open_interest": snap.open_interest,
                 "basis_bps": snap.basis_bps,
+                "manip_score": snap.manip_score,
+                "manip_flags": snap.manip_flags,
             }
         )
     return rows
@@ -202,7 +238,7 @@ async def run_cycle(profile: str) -> tuple[list[SnapshotBundle], list[SymbolSnap
         return [], []
 
     bundles.sort(key=lambda b: b.snapshot.qvol_usdt, reverse=True)
-    top_universe = bundles[:60]
+    top_universe = bundles[: settings.scan_top_by_qvol]
     snapshots = [b.snapshot for b in top_universe]
     ranked = rank(snapshots, top=settings.topn_default, profile=profile)
     return top_universe, ranked
@@ -210,25 +246,32 @@ async def run_cycle(profile: str) -> tuple[list[SnapshotBundle], list[SymbolSnap
 
 async def loop(stop_event: asyncio.Event | None = None) -> None:
     settings = get_settings()
-    profile = settings.ranking_profile_default
+    profile = settings.profile_default
     failure_streak = 0
     while True:
         started = time.time()
+        bundles: list[SnapshotBundle] = []
+        ranked: list[SymbolSnapshot] = []
+        errors = 0
         try:
             bundles, ranked = await run_cycle(profile)
             failure_streak = 0
         except AdapterError as exc:
             failure_streak += 1
-            wait = min(settings.scan_interval_s * (2**failure_streak), 300)
+            errors = 1
+            wait = min(settings.scan_interval_sec * (2**failure_streak), 300)
             LOGGER.warning("Scan cycle failed (%s). Backing off for %.1fs", exc, wait)
+            record_cycle(0.0, 0, 0, errors)
             await asyncio.sleep(wait)
             if stop_event and stop_event.is_set():
                 return
             continue
         except Exception as exc:  # pragma: no cover - defensive
             failure_streak += 1
-            wait = min(settings.scan_interval_s * (2**failure_streak), 300)
+            errors = 1
+            wait = min(settings.scan_interval_sec * (2**failure_streak), 300)
             LOGGER.exception("Unexpected scan error: %s", exc)
+            record_cycle(0.0, 0, 0, errors)
             await asyncio.sleep(wait)
             if stop_event and stop_event.is_set():
                 return
@@ -251,12 +294,27 @@ async def loop(stop_event: asyncio.Event | None = None) -> None:
             LOGGER.warning("bulk_insert_rankings failed: %s", exc)
 
         duration = time.time() - started
-        LOGGER.info(
-            "Scan cycle completed: bundles=%d ranked=%d duration=%.2fs",
-            len(bundles),
-            len(ranked),
-            duration,
-        )
+        record_cycle(duration, len(bundles), len(ranked), errors)
+
+        flagged = [
+            {
+                "symbol": b.snapshot.symbol,
+                "score": b.snapshot.manip_score,
+                "flags": b.snapshot.manip_flags,
+                "features": b.manip_features,
+            }
+            for b in bundles
+            if b.snapshot.manip_flags
+        ]
+        log_payload = {
+            "cycle_ms": round(duration * 1000, 2),
+            "symbols_scanned": len(bundles),
+            "ranked": len(ranked),
+            "manip_flagged": flagged,
+            "timestamp": ts_iso,
+        }
+        LOGGER.info("scan_cycle %s", json.dumps(log_payload))
+
         if stop_event and stop_event.is_set():
             return
-        await asyncio.sleep(settings.scan_interval_s)
+        await asyncio.sleep(settings.scan_interval_sec)

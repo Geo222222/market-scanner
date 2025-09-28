@@ -32,6 +32,8 @@ BARS_1M = Table(
     Column("funding_pct", Float, nullable=True),
     Column("open_interest", Float, nullable=True),
     Column("basis_bps", Float, nullable=True),
+    Column("manip_score", Float, nullable=True),
+    Column("manip_flags", JSON, nullable=True),
     UniqueConstraint("symbol", "ts", name="bars_1m_symbol_ts_key"),
 )
 
@@ -42,6 +44,8 @@ RANKINGS = Table(
     Column("ts", DateTime(timezone=True), primary_key=True),
     Column("profile", String(32), primary_key=True),
     Column("score", Float, nullable=False),
+    Column("manip_score", Float, nullable=True),
+    Column("manip_flags", JSON, nullable=True),
     Column("inputs_json", JSON, nullable=False),
     UniqueConstraint("symbol", "ts", "profile", name="rankings_symbol_ts_profile_key"),
 )
@@ -108,11 +112,15 @@ async def insert_minute_agg(snapshot: SymbolSnapshot, close: float) -> None:
         "funding_pct": float(snapshot.funding_8h_pct) if snapshot.funding_8h_pct is not None else None,
         "open_interest": float(snapshot.open_interest) if snapshot.open_interest is not None else None,
         "basis_bps": float(snapshot.basis_bps) if snapshot.basis_bps is not None else None,
+        "manip_score": float(snapshot.manip_score) if snapshot.manip_score is not None else None,
+        "manip_flags": snapshot.manip_flags,
     }
     stmt = insert(BARS_1M).values(**data)
     update_cols = {key: stmt.excluded[key] for key in data if key not in {"symbol", "ts"}}
     async with session:
-        await session.execute(stmt.on_conflict_do_update(index_elements=[BARS_1M.c.symbol, BARS_1M.c.ts], set_=update_cols))
+        await session.execute(
+            stmt.on_conflict_do_update(index_elements=[BARS_1M.c.symbol, BARS_1M.c.ts], set_=update_cols)
+        )
         await session.commit()
 
 
@@ -130,6 +138,8 @@ async def bulk_insert_rankings(ts: datetime, profile: str, rows: list[dict[str, 
             "ts": _normalise_ts(ts),
             "profile": profile,
             "score": float(row.get("score", 0.0) or 0.0),
+            "manip_score": float(row.get("manip_score", 0.0) or 0.0) if row.get("manip_score") is not None else None,
+            "manip_flags": row.get("manip_flags"),
             "inputs_json": json.loads(json.dumps(row, default=float)),
         }
         for row in rows
@@ -138,7 +148,12 @@ async def bulk_insert_rankings(ts: datetime, profile: str, rows: list[dict[str, 
     if not prepared:
         return
     stmt = insert(RANKINGS).values(prepared)
-    update_cols = {"score": stmt.excluded.score, "inputs_json": stmt.excluded.inputs_json}
+    update_cols = {
+        "score": stmt.excluded.score,
+        "manip_score": stmt.excluded.manip_score,
+        "manip_flags": stmt.excluded.manip_flags,
+        "inputs_json": stmt.excluded.inputs_json,
+    }
     async with session:
         await session.execute(
             stmt.on_conflict_do_update(

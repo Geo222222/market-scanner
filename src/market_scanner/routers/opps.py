@@ -18,6 +18,9 @@ class OpportunityQuery(BaseModel):
     notional: float = Field(default=10_000, ge=1)
     include_funding: bool = True
     include_basis: bool = True
+    include_carry: bool = True
+    max_manip_score: float | None = Field(default=None, ge=0, le=100)
+    exclude_flags: list[str] = Field(default_factory=list)
 
 
 class OpportunityItem(BaseModel):
@@ -28,6 +31,8 @@ class OpportunityItem(BaseModel):
     stop_suggestion: float
     tp_levels: list[float]
     confidence: int
+    manip_score: float | None
+    manip_flags: list[str] | None
     ts: datetime
 
 
@@ -44,6 +49,9 @@ async def _query_params(
     notional: float = Query(default=10_000, ge=1),
     include_funding: bool = Query(default=True),
     include_basis: bool = Query(default=True),
+    include_carry: bool = Query(default=True),
+    max_manip_score: float | None = Query(default=None, ge=0, le=100),
+    exclude_flags: list[str] | None = Query(default=None),
 ) -> OpportunityQuery:
     return OpportunityQuery(
         profile=profile,
@@ -51,6 +59,9 @@ async def _query_params(
         notional=notional,
         include_funding=include_funding,
         include_basis=include_basis,
+        include_carry=include_carry,
+        max_manip_score=max_manip_score,
+        exclude_flags=sorted({flag for flag in exclude_flags if flag}) if exclude_flags else [],
     )
 
 
@@ -86,10 +97,11 @@ def _tp_levels(atr_pct: float) -> list[float]:
     return levels
 
 
-def _confidence(score_val: float, spread_bps: float, slip_bps: float) -> int:
+def _confidence(score_val: float, spread_bps: float, slip_bps: float, manip_score: float | None) -> int:
     base = max(0.0, min(100.0, (score_val / 2) + 50))
     cost_penalty = min(40.0, spread_bps + slip_bps)
-    confidence = base - cost_penalty
+    manip_penalty = min(50.0, (manip_score or 0.0) * 0.6)
+    confidence = base - cost_penalty - manip_penalty
     return int(max(0.0, min(100.0, confidence)))
 
 
@@ -101,6 +113,9 @@ async def get_opportunities(params: OpportunityQuery = Depends(_query_params)) -
         notional=params.notional,
         include_funding=params.include_funding,
         include_basis=params.include_basis,
+        include_carry=params.include_carry,
+        max_manip_score=params.max_manip_score,
+        exclude_flags=params.exclude_flags,
         page=1,
         page_size=params.top,
     )
@@ -113,7 +128,7 @@ async def get_opportunities(params: OpportunityQuery = Depends(_query_params)) -
         entry = _entry_zone(bias, snap.atr_pct)
         stop = _stop_pct(snap.atr_pct, snap.spread_bps)
         tps = _tp_levels(snap.atr_pct)
-        confidence = _confidence(score_val, snap.spread_bps, snap.slip_bps)
+        confidence = _confidence(score_val, snap.spread_bps, snap.slip_bps, snap.manip_score)
         items.append(
             OpportunityItem(
                 symbol=snap.symbol,
@@ -123,6 +138,8 @@ async def get_opportunities(params: OpportunityQuery = Depends(_query_params)) -
                 stop_suggestion=stop,
                 tp_levels=tps,
                 confidence=confidence,
+                manip_score=snap.manip_score,
+                manip_flags=snap.manip_flags,
                 ts=snap.ts,
             )
         )
@@ -132,4 +149,3 @@ async def get_opportunities(params: OpportunityQuery = Depends(_query_params)) -
         notional=params.notional,
         items=items,
     )
-

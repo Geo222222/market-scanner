@@ -12,6 +12,7 @@ except ImportError:  # pragma: no cover - optional dependency
 
 from ..config import get_settings
 from ..core.metrics import SymbolSnapshot
+from ..observability import record_cache_event
 
 LOGGER = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ def _get_client() -> Any:
             settings.redis_url,
             encoding="utf-8",
             decode_responses=True,
-            socket_timeout=settings.adapter_timeout_s,
+            socket_timeout=settings.adapter_timeout_sec,
         )
     return _REDIS_CLIENT
 
@@ -39,7 +40,11 @@ async def cache_snapshots(snaps: Iterable[SymbolSnapshot]) -> None:
         return
     snapshots = [snap.model_dump(mode="json") for snap in snaps]
     try:
-        await client.set("snaps:latest", json.dumps(snapshots), ex=get_settings().redis_snapshots_ttl_s)
+        await client.set(
+            "snaps:latest",
+            json.dumps(snapshots),
+            ex=get_settings().redis_snapshots_ttl_sec,
+        )
     except Exception as exc:  # pragma: no cover - network error path
         LOGGER.warning("Redis cache_snapshots failed: %s", exc)
 
@@ -50,8 +55,10 @@ async def get_latest_snapshots() -> list[SymbolSnapshot]:
         return []
     try:
         raw = await client.get("snaps:latest")
+        record_cache_event("snapshots", bool(raw))
     except Exception as exc:  # pragma: no cover - network error path
         LOGGER.warning("Redis get_latest_snapshots failed: %s", exc)
+        record_cache_event("snapshots", False)
         return []
     if not raw:
         return []
@@ -77,7 +84,7 @@ async def cache_rankings(profile: str, rows: list[dict[str, Any]], ts: str) -> N
         await client.set(
             f"rank:{profile}",
             json.dumps(payload),
-            ex=get_settings().redis_rankings_ttl_s,
+            ex=get_settings().redis_rankings_ttl_sec,
         )
     except Exception as exc:  # pragma: no cover - network error path
         LOGGER.warning("Redis cache_rankings failed: %s", exc)
@@ -87,10 +94,13 @@ async def get_rankings(profile: str) -> dict[str, Any] | None:
     client = _get_client()
     if client is None:
         return None
+    key = f"rank:{profile}"
     try:
-        raw = await client.get(f"rank:{profile}")
+        raw = await client.get(key)
+        record_cache_event("rankings", bool(raw))
     except Exception as exc:  # pragma: no cover - network error path
         LOGGER.warning("Redis get_rankings failed: %s", exc)
+        record_cache_event("rankings", False)
         return None
     if not raw:
         return None

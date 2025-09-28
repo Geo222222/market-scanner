@@ -8,6 +8,7 @@ from typing import Any, Mapping
 import ccxt.async_support as ccxt
 
 from ..config import get_settings
+from ..observability import record_ccxt_latency
 
 
 class AdapterError(RuntimeError):
@@ -51,13 +52,13 @@ class CCXTAdapter:
         exchange_cls = getattr(ccxt, self.exchange_id)
         config = {
             "enableRateLimit": True,
-            "timeout": int(settings.adapter_timeout_s * 1000),
+            "timeout": int(settings.adapter_timeout_sec * 1000),
         }
         config.update(kwargs)
         self._exchange = exchange_cls(config)
-        self._timeout_s = settings.adapter_timeout_s
-        self._breaker = _CircuitBreaker(settings.adapter_max_failures, settings.adapter_cooldown_s)
-        self._semaphore = asyncio.Semaphore(10)
+        self._timeout_s = settings.adapter_timeout_sec
+        self._breaker = _CircuitBreaker(settings.adapter_max_failures, settings.adapter_cooldown_sec)
+        self._semaphore = asyncio.Semaphore(settings.scan_concurrency)
 
     async def __aenter__(self) -> "CCXTAdapter":
         return self
@@ -154,7 +155,8 @@ class CCXTAdapter:
             try:
                 func = getattr(self._exchange, method)
                 async with self._semaphore:
-                    result = await asyncio.wait_for(func(*args, **kwargs), timeout=self._timeout_s)
+                    with record_ccxt_latency(method):
+                        result = await asyncio.wait_for(func(*args, **kwargs), timeout=self._timeout_s)
                 self._breaker.record_success()
                 return result
             except asyncio.TimeoutError as exc:

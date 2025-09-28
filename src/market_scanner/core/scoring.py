@@ -8,7 +8,13 @@ from ..config import get_settings
 from .metrics import SymbolSnapshot
 
 REJECT_SCORE = -1_000_000.0
+# Manipulation penalties scale the final score so that high-risk symbols are deprioritized.
+MANIP_PENALTY_WEIGHT = 0.4
 
+# Weight presets are tuned for different trading styles. Each bucket maps to component weights
+# (liquidity, volatility, momentum, execution cost, carry). The values were chosen so that
+# liquidity and costs dominate the stack for scalp/news profiles while swing trades reward
+# sustained momentum and carry edges slightly more. See docs/scoring.md for rationale.
 WEIGHT_PRESETS: dict[str, dict[str, dict[str, float]]] = {
     "scalp": {
         "liq": {"qvol": 4.0, "depth": 3.5},
@@ -38,7 +44,7 @@ def _scale_log(value: float, divisor: float) -> float:
     return log1p(max(0.0, value) / divisor)
 
 
-def score(snapshot: SymbolSnapshot, profile: str = "scalp") -> float:
+def score(snapshot: SymbolSnapshot, profile: str = "scalp", include_carry: bool | None = None) -> float:
     """Return a weighted score for a snapshot under the requested profile."""
 
     settings = get_settings()
@@ -67,24 +73,35 @@ def score(snapshot: SymbolSnapshot, profile: str = "scalp") -> float:
         + weights["cost"]["slip"] * snapshot.slip_bps
     )
 
+    carry_enabled = settings.include_carry if include_carry is None else include_carry
     carry_component = 0.0
-    funding = snapshot.funding_8h_pct
-    if funding is not None:
-        carry_component += weights["carry"]["funding"] * (-funding)
-    basis = snapshot.basis_bps
-    if basis is not None:
-        carry_component += weights["carry"]["basis"] * (-basis / 100.0)
+    if carry_enabled:
+        funding = snapshot.funding_8h_pct
+        if funding is not None:
+            carry_component += weights["carry"]["funding"] * (-funding)
+        basis = snapshot.basis_bps
+        if basis is not None:
+            carry_component += weights["carry"]["basis"] * (-basis / 100.0)
 
     raw_score = liq + vol_component + mom_component + carry_component - cost_penalty
+
+    if snapshot.manip_score is not None:
+        raw_score -= snapshot.manip_score * MANIP_PENALTY_WEIGHT
+
     return round(raw_score, 4)
 
 
-def rank(snaps: Iterable[SymbolSnapshot], top: int, profile: str = "scalp") -> list[SymbolSnapshot]:
+def rank(
+    snaps: Iterable[SymbolSnapshot],
+    top: int,
+    profile: str = "scalp",
+    include_carry: bool | None = None,
+) -> list[SymbolSnapshot]:
     """Sort snapshots by score, return the Top-N with the computed values attached."""
 
     scored: list[SymbolSnapshot] = []
     for snap in snaps:
-        snap_score = score(snap, profile=profile)
+        snap_score = score(snap, profile=profile, include_carry=include_carry)
         scored.append(snap.model_copy(update={"score": snap_score}))
     scored.sort(key=lambda s: s.score or REJECT_SCORE, reverse=True)
     return scored[: max(top, 0)]

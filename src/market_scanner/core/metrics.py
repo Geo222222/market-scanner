@@ -23,6 +23,8 @@ class SymbolSnapshot(BaseModel):
     funding_8h_pct: float | None = Field(None, description="Funding rate expressed per 8h period in percent.")
     open_interest: float | None = Field(None, description="Open interest for the contract, if available.")
     basis_bps: float | None = Field(None, description="Basis between perp and spot markets in basis points.")
+    manip_score: float | None = Field(None, description="Heuristic manipulation risk score (0-100).")
+    manip_flags: list[str] | None = Field(None, description="List of triggered manipulation signals.")
     ts: datetime = Field(..., description="Timestamp when the snapshot was computed.")
     score: float | None = Field(None, description="Computed ranking score (assigned downstream).")
 

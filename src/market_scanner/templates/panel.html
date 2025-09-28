@@ -14,6 +14,9 @@
       th { background: #1e293b; }
       .chips span { display: inline-flex; background: #1e293b; padding: 0.25rem 0.5rem; border-radius: 999px; margin-right: 0.5rem; font-size: 0.85rem; }
       .status { font-size: 0.9rem; color: #94a3b8; }
+      .badge { display: inline-block; padding: 0.15rem 0.4rem; border-radius: 6px; font-size: 0.75rem; margin-right: 0.25rem; background: #7c3aed; color: #ede9fe; }
+      .badge.danger { background: #dc2626; color: #fee2e2; }
+      .badge.warn { background: #d97706; color: #fef3c7; }
     </style>
   </head>
   <body>
@@ -38,6 +41,8 @@
           <th>Slip bps</th>
           <th>Ret15%</th>
           <th>Ret1%</th>
+          <th>Manip Score</th>
+          <th>Flags</th>
         </tr>
       </thead>
       <tbody id="results"></tbody>
@@ -69,6 +74,16 @@
         }
       }
 
+      function renderFlags(flags) {
+        if (!flags || flags.length === 0) {
+          return '';
+        }
+        return flags.map(flag => {
+          const severity = flag.includes('spoof') || flag.includes('scam') ? 'danger' : 'warn';
+          return `<span class="badge ${severity}">${flag}</span>`;
+        }).join('');
+      }
+
       function renderRows(items) {
         resultsEl.innerHTML = items
           .map((item) => `
@@ -81,6 +96,8 @@
               <td>${item.slip_bps.toFixed(2)}</td>
               <td>${item.ret_15.toFixed(2)}</td>
               <td>${item.ret_1.toFixed(2)}</td>
+              <td>${item.manip_score !== null && item.manip_score !== undefined ? item.manip_score.toFixed(2) : '—'}</td>
+              <td>${renderFlags(item.manip_flags)}</td>
             </tr>
           `)
           .join('');

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -17,7 +17,7 @@ router = APIRouter()
 
 class RankingQuery(BaseModel):
     top: int = Field(default_factory=lambda: get_settings().topn_default, ge=1, le=200)
-    profile: str = Field(default_factory=lambda: get_settings().ranking_profile_default)
+    profile: str = Field(default_factory=lambda: get_settings().profile_default)
     min_qvol: float = Field(default_factory=lambda: float(get_settings().min_qvol_usdt), ge=0)
     max_spread_bps: float = Field(default_factory=lambda: float(get_settings().max_spread_bps), ge=0)
     notional: float = Field(default_factory=lambda: float(get_settings().notional_test), ge=1)
@@ -25,6 +25,9 @@ class RankingQuery(BaseModel):
     page_size: int = Field(default=25, ge=1, le=100)
     include_funding: bool = True
     include_basis: bool = True
+    include_carry: bool = True
+    max_manip_score: float | None = Field(default=None, ge=0, le=100)
+    exclude_flags: List[str] = Field(default_factory=list)
 
 
 class RankingItem(BaseModel):
@@ -40,6 +43,8 @@ class RankingItem(BaseModel):
     funding_8h_pct: float | None = None
     open_interest: float | None = None
     basis_bps: float | None = None
+    manip_score: float | None = None
+    manip_flags: list[str] | None = None
 
 
 class RankingsResponse(BaseModel):
@@ -62,6 +67,9 @@ async def _query_params(
     page_size: int = Query(default=25, ge=1, le=100),
     include_funding: bool = Query(default=True),
     include_basis: bool = Query(default=True),
+    include_carry: bool = Query(default=True),
+    max_manip_score: float | None = Query(default=None, ge=0, le=100),
+    exclude_flags: Optional[list[str]] = Query(default=None),
 ) -> RankingQuery:
     base = RankingQuery()
     if top is not None:
@@ -78,15 +86,20 @@ async def _query_params(
     base.page_size = page_size
     base.include_funding = include_funding
     base.include_basis = include_basis
+    base.include_carry = include_carry
+    if max_manip_score is not None:
+        base.max_manip_score = max_manip_score
+    if exclude_flags:
+        base.exclude_flags = sorted({flag for flag in exclude_flags if flag})
     return base
 
 
 def _adjust_snapshot(snapshot: SymbolSnapshot, params: RankingQuery) -> SymbolSnapshot:
     settings = get_settings()
     updates: dict[str, Any] = {}
-    if not params.include_funding:
+    if not params.include_funding or not params.include_carry:
         updates["funding_8h_pct"] = None
-    if not params.include_basis:
+    if not params.include_basis or not params.include_carry:
         updates["basis_bps"] = None
     if params.notional != settings.notional_test and settings.notional_test > 0:
         ratio = params.notional / settings.notional_test
@@ -127,6 +140,8 @@ async def _load_from_cache(profile: str) -> tuple[list[SymbolSnapshot], datetime
                     funding_8h_pct=row.get("funding_8h_pct"),
                     open_interest=row.get("open_interest"),
                     basis_bps=row.get("basis_bps"),
+                    manip_score=row.get("manip_score"),
+                    manip_flags=row.get("manip_flags"),
                     ts=ts,
                     score=float(row.get("score", 0.0)),
                 )
@@ -148,12 +163,21 @@ async def compute_rankings(params: RankingQuery) -> tuple[list[SymbolSnapshot], 
 
     scored: list[SymbolSnapshot] = []
     for snapshot in snapshots:
+        if params.exclude_flags and snapshot.manip_flags:
+            if any(flag in params.exclude_flags for flag in snapshot.manip_flags):
+                continue
+        if (
+            params.max_manip_score is not None
+            and snapshot.manip_score is not None
+            and snapshot.manip_score > params.max_manip_score
+        ):
+            continue
         snap = _adjust_snapshot(snapshot, params)
         if snap.qvol_usdt < params.min_qvol:
             continue
         if snap.spread_bps > params.max_spread_bps:
             continue
-        snap_score = score(snap, profile=params.profile)
+        snap_score = score(snap, profile=params.profile, include_carry=params.include_carry)
         if snap_score <= REJECT_SCORE:
             continue
         scored.append(snap.model_copy(update={"score": snap_score}))
@@ -184,6 +208,8 @@ async def get_rankings_endpoint(params: RankingQuery = Depends(_query_params)) -
             funding_8h_pct=snap.funding_8h_pct,
             open_interest=snap.open_interest,
             basis_bps=snap.basis_bps,
+            manip_score=snap.manip_score,
+            manip_flags=snap.manip_flags,
         )
         for snap in paged
     ]
@@ -193,6 +219,9 @@ async def get_rankings_endpoint(params: RankingQuery = Depends(_query_params)) -
         "notional": params.notional,
         "include_funding": params.include_funding,
         "include_basis": params.include_basis,
+        "include_carry": params.include_carry,
+        "max_manip_score": params.max_manip_score,
+        "exclude_flags": params.exclude_flags,
     }
     return RankingsResponse(
         ts=ts,
@@ -203,4 +232,3 @@ async def get_rankings_endpoint(params: RankingQuery = Depends(_query_params)) -
         page_size=params.page_size,
         total=total,
     )
-
