@@ -1,4 +1,4 @@
-﻿"""Application settings for the market scanner service."""
+"""Application settings for the market scanner service."""
 from __future__ import annotations
 
 from functools import lru_cache
@@ -15,6 +15,7 @@ class Settings(BaseSettings):
         env_prefix="SCANNER_",
         env_file=".env",
         case_sensitive=False,
+        extra="ignore",
     )
 
     exchange: str = Field(default="htx", description="Primary derivatives exchange identifier (CCXT id).")
@@ -27,13 +28,17 @@ class Settings(BaseSettings):
         default="postgresql+psycopg://scanner:scanner@postgres:5432/scanner",
         description="SQLAlchemy URL (psycopg driver) for persistence.",
     )
+    ca_bundle_path: Optional[str] = Field(
+        default=None,
+        description="Optional path to a CA bundle for outbound HTTPS calls.",
+    )
     topn_default: int = Field(default=12, description="Default number of symbols returned by ranking endpoints.")
     profile_default: str = Field(default="scalp", description="Fallback scoring profile for rankings.")
     include_carry: bool = Field(default=True, description="Whether to include carry inputs (funding/basis) in scoring.")
 
     scan_interval_sec: int = Field(default=15, validation_alias=AliasChoices("scan_interval_sec", "scan_interval_s"))
     markets_cache_ttl_sec: int = Field(default=600, validation_alias=AliasChoices("markets_cache_ttl_sec", "markets_cache_ttl_s"))
-    adapter_timeout_sec: float = Field(default=8.0, validation_alias=AliasChoices("adapter_timeout_sec", "adapter_timeout_s"))
+    adapter_timeout_sec: float = Field(default=90.0)
     adapter_max_failures: int = Field(default=5, description="Failures before the adapter circuit opens.")
     adapter_cooldown_sec: float = Field(default=30.0, validation_alias=AliasChoices("adapter_cooldown_sec", "adapter_cooldown_s"))
     redis_snapshots_ttl_sec: int = Field(default=90, validation_alias=AliasChoices("redis_snapshots_ttl_sec", "redis_snapshots_ttl_s"))

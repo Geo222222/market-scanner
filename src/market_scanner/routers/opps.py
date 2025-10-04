@@ -1,4 +1,4 @@
-﻿"""Opportunities router providing heuristic trade ideas."""
+"""Opportunities router providing heuristic trade ideas."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -97,11 +97,12 @@ def _tp_levels(atr_pct: float) -> list[float]:
     return levels
 
 
-def _confidence(score_val: float, spread_bps: float, slip_bps: float, manip_score: float | None) -> int:
+def _confidence(score_val: float, spread_bps: float, slip_bps: float, manip_score: float | None, anomaly_score: float, ofi_abs: float) -> int:
     base = max(0.0, min(100.0, (score_val / 2) + 50))
     cost_penalty = min(40.0, spread_bps + slip_bps)
     manip_penalty = min(50.0, (manip_score or 0.0) * 0.6)
-    confidence = base - cost_penalty - manip_penalty
+    structure_penalty = min(30.0, anomaly_score * 0.5 + ofi_abs * 50.0)
+    confidence = base - cost_penalty - manip_penalty - structure_penalty
     return int(max(0.0, min(100.0, confidence)))
 
 
@@ -128,7 +129,7 @@ async def get_opportunities(params: OpportunityQuery = Depends(_query_params)) -
         entry = _entry_zone(bias, snap.atr_pct)
         stop = _stop_pct(snap.atr_pct, snap.spread_bps)
         tps = _tp_levels(snap.atr_pct)
-        confidence = _confidence(score_val, snap.spread_bps, snap.slip_bps, snap.manip_score)
+        confidence = _confidence(score_val, snap.spread_bps, snap.slip_bps, snap.manip_score, snap.anomaly_score, abs(snap.order_flow_imbalance))
         items.append(
             OpportunityItem(
                 symbol=snap.symbol,

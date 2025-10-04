@@ -1,11 +1,14 @@
-﻿"""Robust CCXT adapter with retries, timeouts, and a simple circuit breaker."""
+"""Robust CCXT adapter with retries, timeouts, and a simple circuit breaker."""
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from typing import Any, Mapping
 
-import ccxt.async_support as ccxt
+from requests.adapters import HTTPAdapter
+
+import ccxt
 
 from ..config import get_settings
 from ..observability import record_ccxt_latency
@@ -55,7 +58,30 @@ class CCXTAdapter:
             "timeout": int(settings.adapter_timeout_sec * 1000),
         }
         config.update(kwargs)
+        ca_bundle = settings.ca_bundle_path
+        if not ca_bundle:
+            default_bundle = "/etc/ssl/certs/ca-certificates.crt"
+            if os.path.exists(default_bundle):
+                ca_bundle = default_bundle
+        if ca_bundle:
+            config.setdefault("verify", ca_bundle)
         self._exchange = exchange_cls(config)
+        self._exchange.requests_trust_env = True
+        if ca_bundle:
+            self._exchange.cafile = ca_bundle
+            self._exchange.verify = ca_bundle
+        session = getattr(self._exchange, "session", None)
+        if session is not None:
+            session.trust_env = True
+            if ca_bundle:
+                session.verify = ca_bundle
+            try:
+                pool_size = max(settings.scan_concurrency * 2, 32)
+                adapter = HTTPAdapter(pool_connections=pool_size, pool_maxsize=pool_size)
+                session.mount('https://', adapter)
+                session.mount('http://', adapter)
+            except Exception:
+                pass
         self._timeout_s = settings.adapter_timeout_sec
         self._breaker = _CircuitBreaker(settings.adapter_max_failures, settings.adapter_cooldown_sec)
         self._semaphore = asyncio.Semaphore(settings.scan_concurrency)
@@ -68,7 +94,7 @@ class CCXTAdapter:
 
     async def close(self) -> None:
         try:
-            await self._exchange.close()
+            await asyncio.to_thread(self._exchange.close)
         except Exception:  # pragma: no cover - best effort cleanup
             pass
 
@@ -101,7 +127,7 @@ class CCXTAdapter:
         }
 
     async def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int) -> list[dict[str, Any]]:
-        raw = await self._call("fetch_ohlcv", symbol, timeframe, limit)
+        raw = await self._call("fetch_ohlcv", symbol, timeframe, limit=limit)
         normalized: list[dict[str, Any]] = []
         for row in raw:
             if len(row) < 5:
@@ -156,7 +182,10 @@ class CCXTAdapter:
                 func = getattr(self._exchange, method)
                 async with self._semaphore:
                     with record_ccxt_latency(method):
-                        result = await asyncio.wait_for(func(*args, **kwargs), timeout=self._timeout_s)
+                        result = await asyncio.wait_for(
+                            asyncio.to_thread(func, *args, **kwargs),
+                            timeout=self._timeout_s,
+                        )
                 self._breaker.record_success()
                 return result
             except asyncio.TimeoutError as exc:
