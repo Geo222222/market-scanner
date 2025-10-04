@@ -12,233 +12,287 @@ async def panel():
 
 PANEL_HTML = r"""
 <!doctype html>
-<html lang="en" x-data="panelApp()" :class="theme">
+<html lang="en" x-data="panelApp()" x-init="init()" :class="theme">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Market Scanner — Command Center</title>
+  <title>Market Scanner - Command Center</title>
   <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/axios@1.6.8/dist/axios.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    :root { --bg:#0b1220; --panel:#0f172a; --ink:#cbd5e1; --accent:#22d3ee; --bad:#ef4444; --good:#22c55e;}
-    html,body{height:100%}
-    body{background:linear-gradient(180deg,#0a0f1a 0%, #0b1220 40%, #0e1627 100%); color:var(--ink); font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;}
-    .glass{background:rgba(15,23,42,.6); backdrop-filter: blur(10px); border:1px solid rgba(148,163,184,.1);}
-    .chip{border:1px solid rgba(148,163,184,.2)}
-    .pulse{box-shadow:0 0 0 rgba(34,211,238,0.4); animation:pulse 2s infinite}
-    @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,211,238,.45)}70%{box-shadow:0 0 0 15px rgba(34,211,238,0)}100%{box-shadow:0 0 0 0 rgba(34,211,238,0)}}
-    .status-dot{width:10px;height:10px;border-radius:9999px}
-    .scrollbar::-webkit-scrollbar{height:10px}
-    .scrollbar::-webkit-scrollbar-thumb{background:#1f2937;border-radius:8px}
-    .pill{background:#0b1324;border:1px solid #213049}
-    .hdr{background: radial-gradient(50% 60% at 50% -10%, rgba(34,211,238,.2), transparent 60%)}
-    .table-header{background:rgba(2,6,23,.6)}
+    :root { --bg:#050816; --surface:#0c1224; --tray:#0f172a; --ink:#cbd5e1; --muted:#64748b; --accent:#22d3ee; --danger:#f87171; --success:#34d399; --warn:#facc15; }
+    html,body{height:100%; background:var(--bg); color:var(--ink); font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;}
+    body{margin:0;}
+    .glass{background:rgba(15,23,42,.7); backdrop-filter:blur(14px); border:1px solid rgba(148,163,184,.16);}
+    .card{background:rgba(17,25,40,.72); border:1px solid rgba(148,163,184,.12); border-radius:18px; backdrop-filter:blur(18px); box-shadow:0 20px 36px rgba(2,6,23,.55);}
+    .panel{background:rgba(10,17,33,.88); border:1px solid rgba(148,163,184,.12); border-radius:24px;}
+    .spot-input::placeholder{color:rgba(148,163,184,.5);}
+    .scrollbar::-webkit-scrollbar{width:10px; height:10px}
+    .scrollbar::-webkit-scrollbar-thumb{background:rgba(30,41,59,.85); border-radius:999px}
+    .progress{height:6px; border-radius:999px; background:rgba(148,163,184,.2); overflow:hidden;}
+    .progress span{display:block; height:100%; background:linear-gradient(90deg,#22d3ee,#6366f1);}
+    .badge{display:inline-flex; align-items:center; gap:6px; padding:0 12px; border-radius:999px; font-size:12px; letter-spacing:.1em; text-transform:uppercase;}
+    .badge-live{background:rgba(52,211,153,.18); color:#34d399; border:1px solid rgba(52,211,153,.4);}
+    .badge-error{background:rgba(248,113,113,.18); color:#fb7185; border:1px solid rgba(248,113,113,.4);}
+    @keyframes pulse{0%{transform:scale(.8); opacity:.6;}70%{transform:scale(1.4); opacity:0;}100%{transform:scale(.8); opacity:0;}}
+    .pulse::after{content:""; position:absolute; inset:-8px; border-radius:999px; border:2px solid rgba(34,211,238,.35); animation:pulse 2s infinite; opacity:0;}
+    [x-cloak]{display:none!important;}
   </style>
 </head>
-<body class="min-h-full">
-  <!-- Top Bar -->
-  <header class="hdr sticky top-0 z-30 px-6 py-4 border-b border-slate-800/60 glass">
-    <div class="flex items-center gap-3">
-      <div class="w-10 h-10 rounded-xl bg-cyan-400/20 border border-cyan-300/30 flex items-center justify-center pulse">
-        <svg width="22" height="22" viewBox="0 0 24 24" class="text-cyan-300"><path fill="currentColor" d="M11 21v-7H7l6-11v7h4Z"/></svg>
-      </div>
-      <div>
-        <h1 class="text-xl font-extrabold tracking-tight">Market Scanner — <span class="text-cyan-300">Command Center</span></h1>
-        <p class="text-sm text-slate-400" x-text="subTitle()"></p>
-      </div>
-
-      <div class="ml-auto flex items-center gap-2">
-        <!-- Spotlight -->
-        <div class="relative">
-          <input x-model="spot" @keydown.enter.prevent="fetchSpotlight()" placeholder="Spotlight: BTC/USDT:USDT…" class="pill px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-400/40 placeholder:text-slate-500 w-64">
-          <div x-show="spotCard" @click.away="spotCard=null" class="absolute mt-2 w-[28rem] p-4 glass rounded-xl z-20">
-            <template x-if="spotCard">
-              <div>
-                <div class="flex items-center justify-between">
-                  <h3 class="font-semibold text-cyan-300" x-text="spotCard.symbol"></h3>
-                  <button @click="spotCard=null" class="text-slate-400 hover:text-slate-200">✕</button>
-                </div>
-                <div class="grid grid-cols-2 gap-3 mt-3 text-sm">
-                  <div><span class="text-slate-400">Spread (bps):</span> <span x-text="fmt(spotCard.spread_bps)"></span></div>
-                  <div><span class="text-slate-400">Slip (bps):</span> <span x-text="fmt(spotCard.slip_bps)"></span></div>
-                  <div><span class="text-slate-400">ATR%:</span> <span x-text="fmt(spotCard.atr_pct)"></span></div>
-                  <div><span class="text-slate-400">QVol (USDT):</span> <span x-text="num(spotCard.qvol_usdt)"></span></div>
-                </div>
-                <div class="mt-3">
-                  <span class="text-slate-400 text-sm">Flags:</span>
-                  <div class="flex gap-2 mt-2 flex-wrap">
-                    <template x-for="f in (spotCard.flags||[])">
-                      <span class="px-2 py-1 rounded-full text-xs border border-slate-700" :class="f.active ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-700/30 text-slate-300'" x-text="f.name"></span>
-                    </template>
-                    <span x-show="!(spotCard.flags && spotCard.flags.length)" class="text-slate-500 text-xs">None</span>
-                  </div>
-                </div>
-              </div>
-            </template>
-          </div>
+<body class="min-h-full flex flex-col">
+  <header class="glass sticky top-0 z-40 border-b border-slate-800/60">
+    <div class="px-6 py-4 flex flex-wrap items-center gap-4">
+      <div class="flex items-center gap-4">
+        <div class="relative w-12 h-12 rounded-2xl bg-cyan-500/15 border border-cyan-300/30 flex items-center justify-center text-cyan-200 font-semibold text-lg pulse">MS</div>
+        <div>
+          <p class="uppercase text-[11px] tracking-[0.42em] text-slate-500">Market Scanner</p>
+          <h1 class="text-[1.5rem] font-extrabold tracking-tight">Command Center</h1>
+          <p class="text-xs text-slate-500" x-text="subTitle()"></p>
         </div>
-
-        <!-- Settings -->
-        <button @click="openSettings=true" class="pill px-3 py-2 rounded-lg text-sm border-cyan-300/20 hover:border-cyan-300/40 hover:text-cyan-200">
-          ⚙ Settings
-        </button>
-
-        <!-- Refresh -->
-        <button @click="manualRefresh()" class="pill px-3 py-2 rounded-lg text-sm bg-cyan-400/10 border border-cyan-300/30 text-cyan-200 hover:bg-cyan-400/20">
-          Refresh
-        </button>
-
-        <!-- Status -->
-        <div class="flex items-center gap-2 pill px-3 py-2 rounded-lg text-xs">
-          <div class="status-dot" :style="connected ? 'background: var(--good)' : 'background: var(--bad)'"></div>
+      </div>
+      <div class="ml-auto flex flex-wrap items-center gap-3">
+        <div class="relative badge" :class="connected ? 'badge-live' : 'badge-error'">
+          <span class="w-2 h-2 rounded-full" :class="connected ? 'bg-emerald-400 animate-ping' : 'bg-rose-400'"></span>
           <span x-text="connected ? 'Live' : 'Error'"></span>
-          <span class="text-slate-500">·</span>
-          <span class="text-slate-400" x-text="lastUpdated ? ('Updated ' + timeAgo(lastUpdated)) : 'Waiting…'"></span>
         </div>
+        <div class="text-xs text-slate-400">Updated <span x-text="lastUpdated ? timeAgo(lastUpdated) : 'Waiting...'"></span></div>
+        <div class="text-xs text-slate-400">Latency <span x-text="latency ? latency + 'ms' : '-' "></span></div>
+        <div class="relative hidden md:block">
+          <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21 21-4.35-4.35"/><circle cx="11" cy="11" r="6"/></svg>
+          <input class="spot-input w-64 pl-10 pr-4 py-2 rounded-xl bg-slate-900/70 border border-slate-700/60 text-sm focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/30" x-model="spot" @keydown.enter.prevent="fetchSpotlight()" placeholder="Spotlight: BTC/USDT:USDT">
+        </div>
+        <button class="px-3 py-2 rounded-xl bg-slate-900/70 border border-slate-700/60 text-sm hover:border-cyan-300/60" @click="openSettings=true">⚙ Settings</button>
+        <button class="px-3 py-2 rounded-xl bg-cyan-500/20 border border-cyan-300/40 text-sm text-cyan-100 font-medium hover:bg-cyan-500/30" @click="manualRefresh()">Refresh</button>
       </div>
+    </div>
+    <div class="px-6 pb-4">
+      <div class="progress"><span :style="'width:' + refreshProgress + '%'" aria-hidden="true"></span></div>
+      <p class="text-[11px] text-slate-500 mt-1 tracking-[0.3em] uppercase">Auto refresh in <span x-text="countdown"></span></p>
     </div>
   </header>
 
-  <!-- Controls row -->
-  <section class="px-6 mt-4">
-    <div class="flex items-center gap-2 flex-wrap">
-      <span class="chip px-2 py-1 rounded-md text-xs">Profile:
-        <select x-model="settings.profile" @change="saveSettings(); manualRefresh();" class="bg-transparent focus:outline-none text-cyan-300">
-          <option value="scalp">scalp</option>
-          <option value="swing">swing</option>
-          <option value="news">news</option>
-        </select>
-      </span>
-      <span class="chip px-2 py-1 rounded-md text-xs">Top:
-        <select x-model.number="settings.top" @change="saveSettings(); manualRefresh();" class="bg-transparent focus:outline-none text-cyan-300">
-          <template x-for="n in [12,20,40,100]"><option :value="n" x-text="n"></option></template>
-        </select>
-      </span>
-      <span class="chip px-2 py-1 rounded-md text-xs">Notional:
-        <input type="number" min="100" step="100" x-model.number="settings.notional" @change="saveSettings(); manualRefresh();" class="bg-transparent w-20 focus:outline-none text-cyan-300">
-      </span>
+  <div class="flex-1 flex flex-col xl:flex-row overflow-hidden">
+    <main class="flex-1 px-6 py-6 overflow-y-auto scrollbar space-y-6">
+      <section class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <article class="card p-4 flex flex-col gap-3">
+          <p class="text-xs text-slate-400 uppercase tracking-[0.28em]">Pulse</p>
+          <p class="text-2xl font-semibold" x-text="rows.length || '-' "></p>
+          <p class="text-xs text-slate-500">Markets tracked right now</p>
+        </article>
+        <article class="card p-4 flex flex-col gap-3">
+          <p class="text-xs text-slate-400 uppercase tracking-[0.28em]">Profile</p>
+          <p class="text-lg font-semibold" x-text="settings.profile"></p>
+          <p class="text-xs text-slate-500">Top <span x-text="settings.top"></span> | Notional <span x-text="settings.notional"></span></p>
+        </article>
+        <article class="card p-4 flex flex-col gap-3">
+          <p class="text-xs text-slate-400 uppercase tracking-[0.28em]">Risk Guard</p>
+          <p class="text-lg font-semibold" x-text="avgManip()"></p>
+          <p class="text-xs text-slate-500">Minimum manipulation threshold <span x-text="settings.minManip + '%'">0%</span></p>
+        </article>
+      </section>
 
-      <template x-if="error">
-        <span class="ml-2 text-red-400 text-sm">Error: <span x-text="error"></span></span>
-      </template>
-    </div>
-  </section>
-
-  <!-- Table -->
-  <main class="px-6 mt-4">
-    <div class="glass rounded-xl overflow-hidden border border-slate-800/60">
-      <div class="table-header px-4 py-2 text-xs grid grid-cols-10 gap-2 uppercase tracking-wider text-slate-400">
-        <div class="col-span-2">Symbol</div>
-        <div>Score</div>
-        <div>Volume (USDT)</div>
-        <div>ATR %</div>
-        <div>Spread bps</div>
-        <div>Slip bps</div>
-        <div>Ret15%</div>
-        <div>Ret1%</div>
-        <div>Flags</div>
-      </div>
-      <div class="divide-y divide-slate-800/60" id="rows">
-        <template x-for="row in rows" :key="row.symbol">
-          <div class="px-4 py-3 grid grid-cols-10 gap-2 items-center hover:bg-slate-800/30 cursor-pointer"
-               @click="openSymbol(row.symbol)">
-            <div class="col-span-2 font-semibold text-slate-200" x-text="row.symbol"></div>
-            <div class="text-slate-200" x-text="fmt(row.score)"></div>
-            <div class="text-slate-300" x-text="num(row.qvol_usdt)"></div>
-            <div :class="row.atr_pct>1.2 ? 'text-amber-300' : 'text-slate-300'" x-text="fmt(row.atr_pct)"></div>
-            <div :class="row.spread_bps>8 ? 'text-red-400' : 'text-slate-300'" x-text="fmt(row.spread_bps)"></div>
-            <div :class="row.slip_bps>5 ? 'text-red-400' : 'text-slate-300'" x-text="fmt(row.slip_bps)"></div>
-            <div :class="row.ret15>0 ? 'text-emerald-300' : 'text-rose-300'" x-text="fmt(row.ret15)"></div>
-            <div :class="row.ret1>0 ? 'text-emerald-300' : 'text-rose-300'" x-text="fmt(row.ret1)"></div>
-            <div class="flex gap-1 flex-wrap">
-              <template x-for="f in (row.flags||[])">
-                <span class="text-[10px] px-2 py-0.5 rounded-full border"
-                      :class="f.active ? 'border-emerald-400/40 text-emerald-300 bg-emerald-400/10' : 'border-slate-600 text-slate-300 bg-slate-600/20'"
-                      x-text="f.name"></span>
-              </template>
+      <section class="card overflow-hidden">
+        <div class="flex flex-wrap items-center gap-3 px-5 py-4 border-b border-slate-800/60">
+          <div>
+            <h2 class="text-lg font-semibold">Live rankings</h2>
+            <p class="text-xs text-slate-500">Refreshes every <span x-text="refreshInterval/1000"></span>s | click a row to spotlight</p>
+          </div>
+          <div class="ml-auto flex flex-wrap gap-2 text-xs">
+            <button class="px-3 py-1 rounded-lg border border-slate-800/70" :class="quickFilters.liq ? 'bg-emerald-500/10 border-emerald-400/40 text-emerald-300' : 'text-slate-400 hover:text-slate-200'" @click="toggleQuick('liq')">Liquidity</button>
+            <button class="px-3 py-1 rounded-lg border border-slate-800/70" :class="quickFilters.mom ? 'bg-sky-500/10 border-sky-400/40 text-sky-200' : 'text-slate-400 hover:text-slate-200'" @click="toggleQuick('mom')">Momentum</button>
+            <button class="px-3 py-1 rounded-lg border border-slate-800/70" :class="quickFilters.safe ? 'bg-amber-500/10 border-amber-400/40 text-amber-200' : 'text-slate-400 hover:text-slate-200'" @click="toggleQuick('safe')">Low spread</button>
+          </div>
+        </div>
+        <div class="grid grid-cols-12 text-[11px] uppercase tracking-[0.22em] text-slate-500 px-5 py-3 border-b border-slate-800/60">
+          <div class="col-span-2">Symbol</div>
+          <div>Score</div>
+          <div>Liquidity</div>
+          <div>Momentum</div>
+          <div>ATR%</div>
+          <div>Spread</div>
+          <div>Slip</div>
+          <div>Vol</div>
+          <div>Ret15</div>
+          <div>Ret1</div>
+          <div>Flags</div>
+        </div>
+        <div class="divide-y divide-slate-800/60">
+          <template x-if="!rows.length">
+            <div class="px-5 py-12 text-center text-sm text-slate-500">Waiting for rankings...</div>
+          </template>
+          <template x-for="row in rows" :key="row.symbol">
+            <div class="grid grid-cols-12 items-center px-5 py-4 cursor-pointer hover:bg-slate-800/40 transition" @click="openSymbol(row.symbol)" :class="selectedSymbol===row.symbol ? 'bg-cyan-500/10 border-l border-cyan-400/50' : ''">
+              <div class="col-span-2 font-semibold text-slate-100" x-text="row.symbol"></div>
+              <div :class="scoreTone(row.score)" x-text="fmt(row.score)"></div>
+              <div class="text-slate-300" x-text="fmt(row.liq_edge || row.liq || row.liquidity)"></div>
+              <div :class="tone(row.mom_edge || row.momentum)" x-text="fmt(row.mom_edge || row.momentum)"></div>
+              <div :class="row.atr_pct>1.5 ? 'text-amber-300' : 'text-slate-300'" x-text="fmt(row.atr_pct)"></div>
+              <div :class="row.spread_bps>8 ? 'text-rose-300' : 'text-slate-300'" x-text="fmt(row.spread_bps)"></div>
+              <div :class="row.slip_bps>5 ? 'text-rose-300' : 'text-slate-300'" x-text="fmt(row.slip_bps)"></div>
+              <div class="text-slate-300" x-text="num(row.qvol_usdt)"></div>
+              <div :class="tone(row.ret15)" x-text="fmt(row.ret15)"></div>
+              <div :class="tone(row.ret1)" x-text="fmt(row.ret1)"></div>
+              <div class="flex flex-wrap gap-1">
+                <template x-for="flag in (row.flags||[])" :key="row.symbol + flag.name">
+                  <span class="px-2 py-0.5 rounded-full border text-[11px]" :class="flag.active ? 'border-emerald-400/40 text-emerald-300 bg-emerald-400/10' : 'border-slate-700 text-slate-400'" x-text="flag.name"></span>
+                </template>
+                <span x-show="!(row.flags && row.flags.length)" class="text-[11px] text-slate-500">-</span>
+              </div>
             </div>
+          </template>
+        </div>
+      </section>
+    </main>
+
+    <aside class="w-full xl:w-96 2xl:w-[420px] border-t xl:border-t-0 xl:border-l border-slate-800/60 bg-slate-950/70 backdrop-blur-xl px-6 py-6 scrollbar overflow-y-auto">
+      <section class="space-y-4">
+        <header>
+          <p class="uppercase text-[11px] tracking-[0.32em] text-slate-500">Spotlight</p>
+          <h2 class="text-xl font-semibold mt-1" x-text="spotCard ? spotCard.symbol : 'No symbol selected'"></h2>
+          <p class="text-xs text-slate-500">Use Ctrl+K / Cmd+K or click a row to focus a market.</p>
+        </header>
+        <template x-if="spotCard">
+          <div class="panel p-5 space-y-4">
+            <div class="grid grid-cols-2 gap-3 text-sm">
+              <div><p class="text-xs text-slate-500">Spread (bps)</p><p :class="spotCard.spread_bps>8 ? 'text-rose-300' : 'text-slate-100'" class="text-lg font-semibold" x-text="fmt(spotCard.spread_bps)"></p></div>
+              <div><p class="text-xs text-slate-500">Slip (bps)</p><p :class="spotCard.slip_bps>5 ? 'text-rose-300' : 'text-slate-100'" class="text-lg font-semibold" x-text="fmt(spotCard.slip_bps)"></p></div>
+              <div><p class="text-xs text-slate-500">ATR %</p><p :class="spotCard.atr_pct>1.4 ? 'text-amber-300' : 'text-slate-100'" class="text-lg font-semibold" x-text="fmt(spotCard.atr_pct)"></p></div>
+              <div><p class="text-xs text-slate-500">Quote Vol</p><p class="text-lg font-semibold text-slate-100" x-text="num(spotCard.qvol_usdt)"></p></div>
+            </div>
+            <div>
+              <p class="text-xs text-slate-500 uppercase tracking-[0.32em]">Flags</p>
+              <div class="flex flex-wrap gap-2 mt-2">
+                <template x-for="f in (spotCard.flags||[])" :key="f.name">
+                  <span class="px-3 py-1 rounded-full border text-xs" :class="f.active ? 'border-emerald-400/40 text-emerald-300 bg-emerald-400/10' : 'border-slate-700 text-slate-300'" x-text="f.name"></span>
+                </template>
+                <span x-show="!(spotCard.flags && spotCard.flags.length)" class="text-xs text-slate-600">No flags raised.</span>
+              </div>
+            </div>
+            <button class="w-full px-4 py-2 rounded-xl bg-cyan-500/20 border border-cyan-300/30 text-cyan-100 hover:bg-cyan-500/30" @click="openSymbol(spotCard.symbol)">Sync with rankings</button>
           </div>
         </template>
-      </div>
-    </div>
-  </main>
+        <template x-if="!spotCard">
+          <div class="panel p-5 text-sm text-slate-500">Spotlight a market to see its liquidity, risk, and momentum profile in detail.</div>
+        </template>
+        <section class="space-y-3">
+          <p class="uppercase text-[11px] tracking-[0.32em] text-slate-500">Activity</p>
+          <template x-for="item in activity" :key="item.id">
+            <div class="card px-4 py-3 text-xs flex items-start gap-3">
+              <span class="w-2 h-2 rounded-full mt-1" :class="item.variant==='positive' ? 'bg-emerald-400' : item.variant==='warning' ? 'bg-amber-300' : 'bg-slate-500'"></span>
+              <div>
+                <p class="text-slate-300" x-text="item.message"></p>
+                <p class="text-[10px] text-slate-500" x-text="item.time"></p>
+              </div>
+            </div>
+          </template>
+          <template x-if="!activity.length">
+            <div class="card px-4 py-3 text-xs text-slate-500">No alerts yet - they will show up as the scanner refreshes.</div>
+          </template>
+        </section>
+      </section>
+    </aside>
+  </div>
 
-  <!-- Slide-over Settings -->
-  <div x-show="openSettings" class="fixed inset-0 z-40" x-transition.opacity>
-    <div class="absolute inset-0 bg-black/50" @click="openSettings=false"></div>
-    <div class="absolute right-0 top-0 bottom-0 w-[420px] glass border-l border-slate-800/60 p-6 overflow-y-auto" x-transition>
+  <div x-show="openSettings" x-transition.opacity x-cloak class="fixed inset-0 z-50 flex">
+    <div class="flex-1 bg-black/50" @click="openSettings=false"></div>
+    <div class="w-full max-w-md bg-slate-950/95 border-l border-slate-800/70 backdrop-blur-xl p-6 overflow-y-auto scrollbar" x-transition>
       <div class="flex items-center justify-between">
-        <h3 class="text-lg font-semibold">Settings</h3>
-        <button @click="openSettings=false" class="text-slate-400 hover:text-slate-200">✕</button>
+        <h3 class="text-lg font-semibold">Control Deck</h3>
+        <button class="text-slate-400 hover:text-slate-200" @click="openSettings=false">✕</button>
       </div>
-      <div class="mt-4 space-y-4">
+      <p class="text-xs text-slate-500 mt-1">Settings persist in localStorage. Wire to an API later for synced profiles.</p>
+      <div class="mt-6 space-y-5">
         <div>
-          <label class="text-sm text-slate-400">Theme</label>
-          <select x-model="theme" @change="saveTheme()" class="pill px-3 py-2 rounded-lg w-full mt-1">
-            <option value="">Matrix Dark</option>
-            <option value="light">Light</option>
+          <label class="text-xs text-slate-400 uppercase tracking-[0.3em]">Profile</label>
+          <select class="w-full rounded-lg bg-slate-900/80 border border-slate-700/70 px-3 py-2 text-sm mt-1" x-model="settings.profile" @change="saveSettings(); manualRefresh();">
+            <option value="scalp">Scalp</option>
+            <option value="swing">Swing</option>
+            <option value="news">News</option>
           </select>
         </div>
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-2 gap-4">
           <div>
-            <label class="text-sm text-slate-400">Liquidity Weight</label>
-            <input type="range" min="0" max="100" x-model.number="settings.weights.liq" @input="saveSettings()" class="w-full">
+            <label class="text-xs text-slate-400 uppercase tracking-[0.3em]">Top N</label>
+            <select class="w-full rounded-lg bg-slate-900/80 border border-slate-700/70 px-3 py-2 text-sm mt-1" x-model.number="settings.top" @change="saveSettings(); manualRefresh();">
+              <template x-for="n in [12,20,40,100]" :key="n"><option :value="n" x-text="n"></option></template>
+            </select>
           </div>
           <div>
-            <label class="text-sm text-slate-400">Momentum Weight</label>
-            <input type="range" min="0" max="100" x-model.number="settings.weights.mom" @input="saveSettings()" class="w-full">
+            <label class="text-xs text-slate-400 uppercase tracking-[0.3em]">Notional (USDT)</label>
+            <input type="number" min="100" step="100" class="w-full rounded-lg bg-slate-900/80 border border-slate-700/70 px-3 py-2 text-sm mt-1" x-model.number="settings.notional" @change="saveSettings(); manualRefresh();">
+          </div>
+        </div>
+        <div class="space-y-3">
+          <template x-for="item in weightSliders" :key="item.key">
+            <div>
+              <div class="flex items-center justify-between text-xs text-slate-400">
+                <span x-text="item.label"></span>
+                <span class="text-slate-500" x-text="settings.weights[item.key] + '%'">0%</span>
+              </div>
+              <input type="range" min="0" max="100" class="w-full" x-model.number="settings.weights[item.key]" @input="saveSettings()">
+            </div>
+          </template>
+        </div>
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs text-slate-400 uppercase tracking-[0.3em]">Whitelist</label>
+            <input class="w-full rounded-lg bg-slate-900/80 border border-slate-700/70 px-3 py-2 text-sm mt-1" x-model="settings.whitelist" @blur="saveSettings()" placeholder="BTC/USDT:USDT, ETH/USDT:USDT">
           </div>
           <div>
-            <label class="text-sm text-slate-400">Spread Penalty</label>
-            <input type="range" min="0" max="100" x-model.number="settings.weights.spread" @input="saveSettings()" class="w-full">
-          </div>
-          <div>
-            <label class="text-sm text-slate-400">MeanRev ↔ Breakout</label>
-            <input type="range" min="0" max="100" x-model.number="settings.weights.bias" @input="saveSettings()" class="w-full">
+            <label class="text-xs text-slate-400 uppercase tracking-[0.3em]">Blacklist</label>
+            <input class="w-full rounded-lg bg-slate-900/80 border border-slate-700/70 px-3 py-2 text-sm mt-1" x-model="settings.blacklist" @blur="saveSettings()" placeholder="HIFI/USDT:USDT">
           </div>
         </div>
         <div>
-          <label class="text-sm text-slate-400">Whitelist (comma separated)</label>
-          <input x-model="settings.whitelist" @change="saveSettings()" class="pill px-3 py-2 rounded-lg w-full mt-1" placeholder='BTC/USDT:USDT, ETH/USDT:USDT'>
+          <div class="flex items-center justify-between text-xs text-slate-400">
+            <span>Min manipulation risk</span>
+            <span class="text-slate-500" x-text="settings.minManip + '%'">0%</span>
+          </div>
+          <input type="range" min="0" max="100" class="w-full" x-model.number="settings.minManip" @input="saveSettings()">
         </div>
-        <div>
-          <label class="text-sm text-slate-400">Blacklist (comma separated)</label>
-          <input x-model="settings.blacklist" @change="saveSettings()" class="pill px-3 py-2 rounded-lg w-full mt-1" placeholder='HIFI/USDT:USDT'>
+        <div class="flex gap-2">
+          <button class="flex-1 px-3 py-2 rounded-lg border border-slate-700/70" :class="theme==='dark' ? 'bg-cyan-500/20 border-cyan-400/40 text-cyan-100' : 'text-slate-400'" @click="setTheme('dark')">Matrix dark</button>
+          <button class="flex-1 px-3 py-2 rounded-lg border border-slate-700/70" :class="theme==='light' ? 'bg-slate-200 text-slate-900 border-slate-300' : 'text-slate-400'" @click="setTheme('light')">Light</button>
         </div>
-        <div class="flex items-center justify-between">
-          <label class="text-sm text-slate-400">Min Manipulation Risk</label>
-          <input type="range" min="0" max="100" x-model.number="settings.minManip" @input="saveSettings()" class="w-48">
-          <span class="text-cyan-300 text-sm" x-text="settings.minManip + '%'"></span>
-        </div>
-        <button @click="manualRefresh()" class="w-full pill px-3 py-2 rounded-lg bg-cyan-400/10 border border-cyan-300/30 text-cyan-200 hover:bg-cyan-400/20">Apply & Refresh</button>
+        <button class="w-full px-4 py-2 rounded-xl bg-cyan-500/20 border border-cyan-300/30 text-cyan-100 hover:bg-cyan-500/30" @click="manualRefresh()">Apply & refresh</button>
       </div>
-      <p class="text-xs text-slate-500 mt-4">Settings persist in localStorage. Hook to backend later if you want user accounts.</p>
+      <p class="text-[11px] text-slate-600 mt-6">Need persistence across devices? Add CRUD endpoints and replace the localStorage helper.</p>
     </div>
   </div>
 
-  <!-- Toast -->
-  <div x-show="toast" x-transition.opacity class="fixed bottom-6 right-6 z-50 glass px-4 py-3 rounded-lg border border-slate-700 text-sm" :class="toastType==='error' ? 'text-red-300' : 'text-emerald-300'">
+  <div x-show="toast" x-transition.opacity x-cloak class="fixed bottom-6 right-6 z-50 glass px-4 py-3 rounded-xl border border-slate-700/70 text-sm" :class="toastType==='error' ? 'text-rose-200 border-rose-500/40 bg-rose-500/10' : 'text-emerald-200 border-emerald-400/40 bg-emerald-500/10'">
     <span x-text="toast"></span>
   </div>
 
   <script>
   function panelApp(){
     return {
-      theme: localStorage.getItem('theme') || '',
+      theme: localStorage.getItem('theme') || 'dark',
       rows: [],
       connected: false,
+      latency: null,
       lastUpdated: null,
-      error: '',
+      refreshInterval: 5000,
+      refreshProgress: 100,
+      countdown: '-',
       openSettings: false,
       spot: '',
       spotCard: null,
+      selectedSymbol: null,
       toast: '', toastType: 'info', toastTimer: null,
-      settings: JSON.parse(localStorage.getItem('scanner_settings') || '{}') || {},
+      activity: [],
+      quickFilters: { liq:false, mom:false, safe:false },
+      weightSliders: [
+        { key: 'liq', label: 'Liquidity weight' },
+        { key: 'mom', label: 'Momentum weight' },
+        { key: 'spread', label: 'Spread penalty' },
+        { key: 'bias', label: 'MeanRev <-> Breakout' }
+      ],
+      settings: {},
       init(){
-        // defaults
         this.settings = Object.assign({
           profile: 'scalp',
           top: 12,
@@ -247,61 +301,104 @@ PANEL_HTML = r"""
           whitelist: '',
           blacklist: '',
           minManip: 0
-        }, this.settings);
-        this.saveSettings();
+        }, JSON.parse(localStorage.getItem('scanner_settings') || '{}'));
+        this.applyTheme();
+        this.manualRefresh();
         this.refreshLoop();
+        this.progressTicker();
+        window.addEventListener('keydown', (e) => {
+          if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==='k'){
+            e.preventDefault();
+            const el = document.querySelector('.spot-input');
+            if(el){ el.focus(); el.select(); }
+          }
+        });
       },
-      subTitle(){ return  },
+      applyTheme(){ localStorage.setItem('theme', this.theme); document.documentElement.setAttribute('data-theme', this.theme); },
+      setTheme(mode){ this.theme = mode; this.applyTheme(); },
       saveSettings(){ localStorage.setItem('scanner_settings', JSON.stringify(this.settings)); },
-      saveTheme(){ localStorage.setItem('theme', this.theme); },
       async refreshLoop(){
         while(true){
+          await new Promise(r => setTimeout(r, this.refreshInterval));
           await this.fetchRankings();
-          await new Promise(r=>setTimeout(r, 5000));
         }
+      },
+      progressTicker(){
+        setInterval(() => {
+          if(!this.lastUpdated){ return; }
+          const elapsed = Date.now() - this.lastUpdated;
+          const remain = Math.max(this.refreshInterval - elapsed, 0);
+          this.countdown = Math.ceil(remain/1000) + 's';
+          const pct = Math.min(100, (elapsed/this.refreshInterval)*100);
+          this.refreshProgress = 100 - pct;
+        }, 180);
+      },
+      params(){
+        const params = new URLSearchParams({
+          top: this.settings.top,
+          profile: this.settings.profile,
+          notional: this.settings.notional
+        });
+        if(this.settings.whitelist.trim()) params.append('whitelist', this.settings.whitelist);
+        if(this.settings.blacklist.trim()) params.append('blacklist', this.settings.blacklist);
+        if(this.settings.minManip>0) params.append('min_manip', this.settings.minManip);
+        if(this.quickFilters.safe) params.append('max_spread_bps', '5');
+        return params;
       },
       async manualRefresh(){ await this.fetchRankings(true); },
       async fetchRankings(force=false){
+        const started = performance.now();
         try{
-          const params = new URLSearchParams({
-            top: this.settings.top,
-            profile: this.settings.profile,
-            notional: this.settings.notional
-          });
-          if(this.settings.whitelist.trim()) params.append('whitelist', this.settings.whitelist);
-          if(this.settings.blacklist.trim()) params.append('blacklist', this.settings.blacklist);
-          if(this.settings.minManip>0) params.append('min_manip', this.settings.minManip);
-
-          const res = await axios.get(, {timeout: 10000});
-          this.rows = res.data.items || res.data || [];
+          const res = await axios.get('/rankings?' + this.params().toString(), { timeout: 10000 });
+          let items = res.data.items || res.data || [];
+          if(!Array.isArray(items)) items = [];
+          if(this.quickFilters.liq){ items = items.filter((r) => Number(r.qvol_usdt || 0) >= 1000000); }
+          if(this.quickFilters.mom){ items = items.filter((r) => Number((r.mom_edge || r.momentum) || 0) > 0); }
+          this.rows = items;
           this.connected = true;
-          this.error = '';
           this.lastUpdated = Date.now();
-          if(force) this.toastShow('Refreshed');
+          this.latency = Math.round(performance.now() - started);
+          if(force) this.toastShow('Ranks refreshed');
+          this.activity.unshift({ id: Date.now(), message: 'Ranks updated (' + items.length + ')', variant: 'positive', time: new Date().toLocaleTimeString() });
+          if(this.activity.length > 12) this.activity.pop();
         }catch(e){
           this.connected = false;
-          this.error = (e.response && e.response.status) ?  : 'Network error';
-          this.toastShow(this.error, 'error');
+          const msg = (e.response && e.response.status) ? 'Request failed with status ' + e.response.status : 'Network error';
+          this.toastShow(msg, 'error');
+          this.activity.unshift({ id: Date.now(), message: 'Refresh failed - ' + msg, variant: 'warning', time: new Date().toLocaleTimeString() });
         }
       },
       async fetchSpotlight(){
         if(!this.spot) return;
         try{
-          const res = await axios.get();
-          this.spotCard = res.data && (res.data.card || res.data.items?.find(x=>x.symbol===this.spot) || res.data);
-          if(!this.spotCard) this.toastShow('No data for symbol', 'error');
-        }catch(e){
+          const res = await axios.get('/opportunities?symbol=' + encodeURIComponent(this.spot));
+          const items = Array.isArray(res.data && res.data.items) ? res.data.items : [];
+          const card = (res.data && res.data.card) || items.find((x) => x.symbol === this.spot) || res.data;
+          if(card){
+            this.spotCard = card;
+            this.selectedSymbol = card.symbol;
+            this.toastShow('Spotlight updated');
+          }else{
+            this.toastShow('No data for symbol', 'error');
+          }
+        }catch(err){
           this.toastShow('Spotlight failed', 'error');
         }
       },
-      openSymbol(sym){ this.spot = sym; this.fetchSpotlight(); },
-      fmt(v){ if(v===null || v===undefined) return '—'; return (+v).toFixed(2); },
-      num(v){
-        const n = Number(v||0);
-        return n>=1e9 ? (n/1e9).toFixed(2)+'B' : n>=1e6 ? (n/1e6).toFixed(2)+'M' : n>=1e3 ? (n/1e3).toFixed(1)+'K' : ''+n;
-      },
-      timeAgo(ts){ const s=Math.floor((Date.now()-ts)/1000); if(s<60) return s+'s ago'; const m=Math.floor(s/60); if(m<60) return m+'m ago'; const h=Math.floor(m/60); return h+'h ago'; },
-      toastShow(msg,type='info'){ clearTimeout(this.toastTimer); this.toast=msg; this.toastType=type; this.toastTimer=setTimeout(()=>this.toast='', 2500); },
+      openSymbol(sym){ this.selectedSymbol = sym; this.spot = sym; this.fetchSpotlight(); },
+      toggleQuick(key){ this.quickFilters[key] = !this.quickFilters[key]; this.manualRefresh(); },
+      tone(v){ const n = Number(v || 0); if(n>0) return 'text-emerald-300'; if(n<0) return 'text-rose-300'; return 'text-slate-300'; },
+      scoreTone(v){ const n = Number(v || 0); if(n>40) return 'text-emerald-200'; if(n<-10) return 'text-rose-300'; return 'text-slate-200'; },
+      fmt(v){ if(v===null || v===undefined || isNaN(v)) return '-'; return (+v).toFixed(2); },
+      num(v){ const n = Number(v || 0); if(n>=1e9) return (n/1e9).toFixed(2)+'B'; if(n>=1e6) return (n/1e6).toFixed(2)+'M'; if(n>=1e3) return (n/1e3).toFixed(1)+'K'; return n ? n.toLocaleString() : '-'; },
+      timeAgo(ts){ const s=Math.floor((Date.now()-ts)/1000); if(s<60) return s+'s ago'; const m=Math.floor(s/60); if(m<60) return m+'m ago'; return Math.floor(m/60)+'h ago'; },
+      toastShow(msg,type='info'){ clearTimeout(this.toastTimer); this.toast=msg; this.toastType=type; this.toastTimer=setTimeout(() => this.toast='', 2400); },
+      avgManip(){
+        if(!this.rows.length) return '-';
+        const vals = this.rows.map((r) => Number(r.manip || r.manip_score)).filter((n) => !Number.isNaN(n));
+        if(!vals.length) return '-';
+        return (vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1);
+      }
     }
   }
   </script>

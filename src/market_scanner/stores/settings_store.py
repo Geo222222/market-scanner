@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from sqlalchemy import insert, select, delete
+from sqlalchemy import select, delete
+from sqlalchemy.dialects.postgresql import insert
 
 from .pg_store import (
     USER_PROFILES,
