@@ -340,7 +340,7 @@
       <div class="toolbar">
         <button class="secondary" id="spotlight-button">?K Spotlight</button>
         <button class="secondary" id="refresh-button">Reload Settings</button>
-        <span class="status-bar" id="status-bar">connecting…</span>
+        <span class="status-bar" id="status-bar">connecting...</span>
       </div>
     </header>
 
@@ -379,7 +379,7 @@
 
     <div class="spotlight-overlay" id="spotlight-overlay">
       <div class="spotlight">
-        <input type="text" id="spotlight-input" placeholder="Search symbol…" />
+        <input type="text" id="spotlight-input" placeholder="Search symbol..." />
         <div class="spotlight-results" id="spotlight-results"></div>
       </div>
     </div>
@@ -444,7 +444,7 @@
           statusBar.textContent = 'live';
         };
         ws.onclose = () => {
-          statusBar.textContent = 'reconnecting…';
+          statusBar.textContent = 'reconnecting...';
           clearTimeout(reconnectTimer);
           reconnectTimer = setTimeout(connectStream, 3000);
         };
@@ -565,12 +565,12 @@
       });
 
       function renderDrawer(item) {
-        drawerTitle.textContent = `${item.symbol} — score ${item.score.toFixed(2)}`;
+        drawerTitle.textContent = `${item.symbol} - score ${item.score.toFixed(2)}`;
         drawerOverview.innerHTML = `
           <p><strong>Rank:</strong> ${item.rank} (? ${item.rank_delta})</p>
           <p><strong>Liquidity edge:</strong> ${item.liquidity_edge.toFixed(2)} | <strong>Momentum edge:</strong> ${item.momentum_edge.toFixed(2)}</p>
           <p><strong>Spread:</strong> ${item.spread_bps.toFixed(2)} bps | <strong>Slip:</strong> ${item.slip_bps.toFixed(2)} bps</p>
-          <p><strong>VWAP distance:</strong> ${item.score_components?.vwap_distance ?? '—'}</p>
+          <p><strong>VWAP distance:</strong> ${item.score_components?.vwap_distance ?? '-'}</p>
         `;
       }
 
@@ -742,7 +742,7 @@
           const response = await fetch(`/symbol/${encodeURIComponent(query)}/inspect?mode=card`);
           if (!response.ok) return;
           const payload = await response.json();
-          spotlightResults.innerHTML = `<div data-symbol="${payload.symbol}">${payload.symbol} · score ${payload.score?.toFixed?.(2) ?? 'n/a'}</div>`;
+          spotlightResults.innerHTML = `<div data-symbol="${payload.symbol}">${payload.symbol} - score ${payload.score?.toFixed?.(2) ?? 'n/a'}</div>`;
         } catch (err) {
           console.error(err);
         }

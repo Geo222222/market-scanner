@@ -32,6 +32,9 @@ app.include_router(health.router)
 app.include_router(symbols.router, prefix="/symbols", tags=["symbols"])
 app.include_router(rankings.router, prefix="/rankings", tags=["rankings"])
 app.include_router(opportunities.router, prefix="/opportunities", tags=["opportunities"])
+app.include_router(settings_routes.router, tags=["settings"])
+app.include_router(watchlists.router, tags=["watchlists"])
+app.include_router(profiles.router, tags=["profiles"])
 app.include_router(stream.router, prefix="/stream", tags=["stream"])
 
 _templates_path = Path(__file__).resolve().parent / "templates"

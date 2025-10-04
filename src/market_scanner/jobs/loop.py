@@ -103,6 +103,10 @@ def _is_usdt_perp(data: Mapping[str, Any]) -> bool:
 async def _load_symbols(adapter: CCXTAdapter) -> list[str]:
     global _MARKETS_CACHE, _MARKETS_TS
     settings = get_settings()
+    allow_list = [sym.strip() for sym in settings.symbols if str(sym).strip()]
+    if allow_list:
+        return allow_list
+
     now = time.time()
     if not _MARKETS_CACHE or _MARKETS_TS is None or now - _MARKETS_TS > settings.markets_cache_ttl_sec:
         markets = await adapter.load_markets()
@@ -241,7 +245,7 @@ async def _build_snapshot(adapter: CCXTAdapter, symbol: str) -> SnapshotBundle |
         "simulated_impact_bps": simulated_impact(orderbook, notional),
     }
 
-    SPREAD_HISTORY[symbol] = spread_history_update(SPREAD_HISTORY[symbol], spread)
+    _SPREAD_HISTORY[symbol] = spread_history_update(_SPREAD_HISTORY[symbol], spread)
 
     bundle = SnapshotBundle(
         snapshot=snapshot,

@@ -5,8 +5,8 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from src.market_scanner.config import get_settings
-from src.market_scanner.stores.pg_store import _METADATA
+from market_scanner.config import get_settings
+from market_scanner.stores.pg_store import _METADATA
 
 config = context.config
 if config.config_file_name is not None:

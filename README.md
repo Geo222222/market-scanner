@@ -105,6 +105,7 @@ That prints the top-ranked symbols, key metrics, manipulation score, and snapsho
 | `SCANNER_SCAN_INTERVAL_SEC` | `15` | Delay between scan cycles. |
 | `SCANNER_SCAN_CONCURRENCY` | `12` | Maximum concurrent CCXT calls. |
 | `SCANNER_SCAN_TOP_BY_QVOL` | `60` | Universe size after quote-volume sorting. |
+| `SCANNER_SYMBOLS` | `[]` | Optional JSON list of symbols to scan (skip CCXT discovery). |
 | `SCANNER_REDIS_URL` | `redis://redis:6379/0` | Redis connection string. |
 | `SCANNER_POSTGRES_URL` | `postgresql+psycopg://scanner:scanner@postgres:5432/scanner` | Postgres URL (psycopg driver). |
 | `SCANNER_METRICS_ENABLED` | `true` | Toggles the `/metrics` endpoint and Prometheus instrumentation. |

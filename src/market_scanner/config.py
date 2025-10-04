@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import json
 from typing import Optional
 
 from pydantic import AliasChoices, Field, field_validator
@@ -45,6 +46,7 @@ class Settings(BaseSettings):
     redis_rankings_ttl_sec: int = Field(default=60, validation_alias=AliasChoices("redis_rankings_ttl_sec", "redis_rankings_ttl_s"))
     scan_concurrency: int = Field(default=12, description="Maximum concurrent CCXT calls during scan.")
     scan_top_by_qvol: int = Field(default=60, description="Number of symbols to retain by quote volume before ranking.")
+    symbols: list[str] = Field(default_factory=list, description="Optional static allow list for scanning.")
 
     raw_retention_hours: int = Field(default=24, description="Retention for raw exchange messages in hours.")
     bar_1s_retention_hours: int = Field(default=72, description="Retention for 1-second bars in hours.")
@@ -54,6 +56,35 @@ class Settings(BaseSettings):
     metrics_enabled: bool = Field(default=True, description="Expose Prometheus metrics endpoint.")
     alert_webhook_url: Optional[str] = Field(default=None, description="Optional webhook for alert fan-out.")
     signal_channel: str = Field(default="scanner.signals", description="Redis pub/sub channel for signals.")
+
+    @field_validator("symbols", mode="before")
+    @classmethod
+    def _coerce_symbols(cls, value):
+        if value in (None, "", [], ( )):
+            return []
+        if isinstance(value, str):
+            raw = value.strip()
+            if not raw:
+                return []
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    value = parsed
+                else:
+                    value = [raw]
+            except json.JSONDecodeError:
+                parts = [part.strip() for part in raw.split(',') if part.strip()]
+                value = parts or []
+        if isinstance(value, (set, tuple)):
+            value = list(value)
+        if not isinstance(value, list):
+            raise ValueError("symbols must be a list of strings")
+        normalised = []
+        for item in value:
+            text_item = str(item).strip()
+            if text_item:
+                normalised.append(text_item)
+        return normalised
 
     @field_validator("postgres_url")
     @classmethod
