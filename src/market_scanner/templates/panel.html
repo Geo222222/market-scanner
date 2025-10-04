@@ -1,110 +1,784 @@
-ï»¿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Market Scanner Panel</title>
+    <title>Scalper Console</title>
     <style>
-      body { font-family: Arial, sans-serif; margin: 2rem; background: #0f172a; color: #e2e8f0; }
-      h1 { margin-bottom: 0.5rem; }
-      .controls { display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; }
-      button { padding: 0.5rem 1rem; background: #2563eb; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
-      button:disabled { background: #475569; cursor: not-allowed; }
-      table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-      th, td { padding: 0.5rem; border-bottom: 1px solid #334155; text-align: left; }
-      th { background: #1e293b; }
-      .chips span { display: inline-flex; background: #1e293b; padding: 0.25rem 0.5rem; border-radius: 999px; margin-right: 0.5rem; font-size: 0.85rem; }
-      .status { font-size: 0.9rem; color: #94a3b8; }
-      .badge { display: inline-block; padding: 0.15rem 0.4rem; border-radius: 6px; font-size: 0.75rem; margin-right: 0.25rem; background: #7c3aed; color: #ede9fe; }
-      .badge.danger { background: #dc2626; color: #fee2e2; }
-      .badge.warn { background: #d97706; color: #fef3c7; }
+      :root {
+        color-scheme: dark;
+        font-family: "Inter", Arial, sans-serif;
+        background: #0b1120;
+        color: #f1f5f9;
+      }
+      body {
+        margin: 0;
+        display: grid;
+        grid-template-columns: 280px 1fr;
+        grid-template-rows: 64px 1fr;
+        grid-template-areas:
+          "sidebar header"
+          "sidebar main";
+        height: 100vh;
+      }
+      header {
+        grid-area: header;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 1.5rem;
+        border-bottom: 1px solid #1e293b;
+        background: #0f172a;
+      }
+      header h1 {
+        font-size: 1.25rem;
+        margin: 0;
+      }
+      .toolbar {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+      }
+      button, input, select {
+        font: inherit;
+      }
+      button.primary {
+        background: #2563eb;
+        border: none;
+        color: white;
+        padding: 0.45rem 0.9rem;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: transparent;
+        border: 1px solid #334155;
+        color: #e2e8f0;
+        padding: 0.45rem 0.9rem;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      button.primary:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      aside {
+        grid-area: sidebar;
+        border-right: 1px solid #1e293b;
+        background: #111827;
+        display: flex;
+        flex-direction: column;
+        padding: 1rem;
+        overflow-y: auto;
+      }
+      aside h2 {
+        font-size: 0.95rem;
+        margin: 1rem 0 0.5rem;
+        color: #cbd5f5;
+      }
+      aside label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        margin-bottom: 0.75rem;
+        font-size: 0.85rem;
+      }
+      aside input[type="range"] {
+        width: 100%;
+      }
+      aside .watchlists {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+      }
+      aside .watchlists button {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.35rem 0.6rem;
+        border: 1px solid #1f2937;
+        background: #0f172a;
+        color: inherit;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .health-section {
+        margin-top: 1.5rem;
+        padding-top: 1rem;
+        border-top: 1px solid #1f2937;
+      }
+      .health-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.6rem;
+        margin-bottom: 0.75rem;
+      }
+      .health-card {
+        background: #0b1628;
+        border: 1px solid #1f2937;
+        border-radius: 6px;
+        padding: 0.6rem;
+        font-size: 0.8rem;
+      }
+      .health-card span.value {
+        display: block;
+        font-size: 1.05rem;
+        color: #e2e8f0;
+        margin-top: 0.2rem;
+      }
+      .breaker-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.3rem 0.6rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .breaker-pill[data-state="closed"] { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+      .breaker-pill[data-state="half-open"] { background: rgba(234, 179, 8, 0.15); color: #fde68a; }
+      .breaker-pill[data-state="open"] { background: rgba(239, 68, 68, 0.15); color: #fca5a5; }
+      .health-stale-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+        font-size: 0.78rem;
+      }
+      .health-stale-list li {
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px solid #1e293b;
+        padding-bottom: 0.25rem;
+      }
+      main {
+        grid-area: main;
+        overflow: hidden;
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        grid-template-rows: auto 1fr;
+        grid-template-areas:
+          "table drawer"
+          "table drawer";
+      }
+      .table-container {
+        grid-area: table;
+        overflow-y: auto;
+        border-right: 1px solid #1e293b;
+        background: #0b1120;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      thead {
+        background: #111c34;
+        position: sticky;
+        top: 0;
+        z-index: 2;
+      }
+      th, td {
+        padding: 0.45rem 0.6rem;
+        border-bottom: 1px solid #1e293b;
+        font-size: 0.82rem;
+      }
+      th {
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-size: 0.7rem;
+        cursor: pointer;
+      }
+      tr:hover {
+        background: rgba(59, 130, 246, 0.12);
+      }
+      .positive {
+        color: #22c55e;
+      }
+      .negative {
+        color: #ef4444;
+      }
+      .badge {
+        display: inline-block;
+        padding: 0.2rem 0.45rem;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        margin-right: 0.3rem;
+      }
+      .badge.danger { background: rgba(239, 68, 68, 0.15); color: #fca5a5; }
+      .badge.warn { background: rgba(234, 179, 8, 0.15); color: #fde68a; }
+      .drawer {
+        grid-area: drawer;
+        padding: 1rem;
+        background: #0f172a;
+        overflow-y: auto;
+      }
+      .drawer h3 {
+        margin-top: 0;
+      }
+      .drawer-section {
+        margin-bottom: 1rem;
+        border-bottom: 1px solid #1e293b;
+        padding-bottom: 0.75rem;
+      }
+      .sparkline {
+        height: 60px;
+        width: 100%;
+      }
+      .status-bar {
+        font-size: 0.8rem;
+        color: #94a3b8;
+        margin-top: 0.4rem;
+      }
+      .spotlight-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.75);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 50;
+      }
+      .spotlight {
+        width: 520px;
+        background: #0f172a;
+        border: 1px solid #243045;
+        border-radius: 10px;
+        padding: 1rem;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.6);
+      }
+      .spotlight input {
+        width: 100%;
+        padding: 0.6rem 0.8rem;
+        border-radius: 6px;
+        border: 1px solid #334155;
+        background: #111c34;
+        color: inherit;
+      }
+      .spotlight-results {
+        margin-top: 0.75rem;
+        max-height: 260px;
+        overflow-y: auto;
+      }
+      .spotlight-results div {
+        padding: 0.5rem 0.6rem;
+        border-bottom: 1px solid #1e293b;
+        cursor: pointer;
+      }
+      .spotlight-results div:hover {
+        background: rgba(37, 99, 235, 0.15);
+      }
     </style>
   </head>
   <body>
-    <h1>Market Scanner Panel</h1>
-    <div class="controls">
-      <div class="chips">
-        <span id="profile-chip">Profile: {{ default_profile }}</span>
-        <span id="top-chip">Top: {{ default_top }}</span>
-        <span id="notional-chip">Notional: {{ default_notional }}</span>
+    <aside>
+      <h2>Profile Controls</h2>
+      <label>
+        Liquidity Weight
+        <input type="range" min="0" max="6" step="0.1" id="weight-liq" />
+      </label>
+      <label>
+        Momentum Weight
+        <input type="range" min="0" max="6" step="0.1" id="weight-mom" />
+      </label>
+      <label>
+        Spread Penalty
+        <input type="range" min="0" max="5" step="0.1" id="weight-spread" />
+      </label>
+      <label>
+        Manipulation Threshold
+        <input type="range" min="0" max="100" step="1" id="threshold-manip" />
+      </label>
+      <label>
+        Test Notional (USDT)
+        <input type="number" id="input-notional" min="1000" step="100" />
+      </label>
+      <button class="primary" id="save-settings">Save Settings</button>
+
+      <h2>Watchlists</h2>
+      <div class="watchlists" id="watchlists"></div>
+      <div style="display:flex; gap:0.4rem; margin-top:0.5rem;">
+        <input style="flex:1; padding:0.4rem; border-radius:4px; border:1px solid #1f2937; background:#111c34; color:inherit;" placeholder="New watchlist" id="new-watchlist-name" />
+        <button class="secondary" id="create-watchlist">Create</button>
       </div>
-      <button id="refresh-btn">Refresh</button>
-      <span class="status" id="status"></span>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th>Symbol</th>
-          <th>Score</th>
-          <th>Volume (USDT)</th>
-          <th>ATR %</th>
-          <th>Spread bps</th>
-          <th>Slip bps</th>
-          <th>Ret15%</th>
-          <th>Ret1%</th>
-          <th>Manip Score</th>
-          <th>Flags</th>
-        </tr>
-      </thead>
-      <tbody id="results"></tbody>
-    </table>
-    <script>
-      const defaultProfile = "{{ default_profile }}";
-      const defaultTop = {{ default_top }};
-      const defaultNotional = {{ default_notional }};
-      const statusEl = document.getElementById('status');
-      const resultsEl = document.getElementById('results');
-      const refreshBtn = document.getElementById('refresh-btn');
+      <section class="health-section">
+        <h2>System Health</h2>
+        <div class="health-grid">
+          <div class="health-card">
+            <span>Cycle Time</span>
+            <span class="value" id="health-cycle">--</span>
+          </div>
+          <div class="health-card">
+            <span>Last Success</span>
+            <span class="value" id="health-last-success">--</span>
+          </div>
+          <div class="health-card">
+            <span>Failure Streak</span>
+            <span class="value" id="health-failures">0</span>
+          </div>
+          <div class="health-card">
+            <span>Backoff</span>
+            <span class="value" id="health-backoff">0s</span>
+          </div>
+        </div>
+        <div class="health-card" style="margin-bottom:0.75rem;">
+          <span>Circuit Breaker</span>
+          <div class="breaker-pill" id="health-breaker" data-state="idle">IDLE</div>
+          <div style="font-size:0.7rem;margin-top:0.4rem;" id="health-cooldown"></div>
+        </div>
+        <div>
+          <h3 style="font-size:0.8rem;margin:0 0 0.3rem 0;color:#94a3b8;">Most Stale</h3>
+          <ul class="health-stale-list" id="health-stale"></ul>
+        </div>
+        <div style="font-size:0.7rem;color:#cbd5f5;margin-top:0.5rem;" id="health-error"></div>
+      </section>
+    </aside>
 
-      async function loadData() {
-        try {
-          refreshBtn.disabled = true;
-          statusEl.textContent = 'Loadingâ€¦';
-          const response = await fetch(`/rankings?profile=${encodeURIComponent(defaultProfile)}&top=${defaultTop}&notional=${defaultNotional}`);
-          if (!response.ok) {
-            throw new Error(`Request failed with status ${response.status}`);
-          }
-          const payload = await response.json();
-          renderRows(payload.items || []);
-          statusEl.textContent = `Last updated: ${new Date(payload.ts).toLocaleTimeString()}`;
-        } catch (err) {
-          statusEl.textContent = `Error: ${err.message}`;
-          resultsEl.innerHTML = '';
-        } finally {
-          refreshBtn.disabled = false;
-        }
-      }
+    <header>
+      <h1>Real-time Scalper Console</h1>
+      <div class="toolbar">
+        <button class="secondary" id="spotlight-button">?K Spotlight</button>
+        <button class="secondary" id="refresh-button">Reload Settings</button>
+        <span class="status-bar" id="status-bar">connecting…</span>
+      </div>
+    </header>
 
-      function renderFlags(flags) {
-        if (!flags || flags.length === 0) {
-          return '';
-        }
-        return flags.map(flag => {
-          const severity = flag.includes('spoof') || flag.includes('scam') ? 'danger' : 'warn';
-          return `<span class="badge ${severity}">${flag}</span>`;
-        }).join('');
-      }
-
-      function renderRows(items) {
-        resultsEl.innerHTML = items
-          .map((item) => `
+    <main>
+      <section class="table-container">
+        <table>
+          <thead>
             <tr>
+              <th data-sort="rank">Rank</th>
+              <th data-sort="symbol">Symbol</th>
+              <th data-sort="score">Score</th>
+              <th data-sort="liquidity_edge">Liq Edge</th>
+              <th data-sort="momentum_edge">Mom Edge</th>
+              <th data-sort="spread_bps">Spread</th>
+              <th data-sort="slip_bps">Slip</th>
+              <th data-sort="volume_zscore">Vol Z</th>
+              <th data-sort="anomaly_residual">Anomaly</th>
+              <th data-sort="manipulation_score">Manip</th>
+              <th>Flags</th>
+            </tr>
+          </thead>
+          <tbody id="rankings-body"></tbody>
+        </table>
+      </section>
+      <section class="drawer" id="drawer">
+        <h3 id="drawer-title">Select a symbol</h3>
+        <div class="drawer-section" id="drawer-overview"></div>
+        <div class="drawer-section">
+          <canvas class="sparkline" id="sparkline-1m"></canvas>
+          <canvas class="sparkline" id="sparkline-5m"></canvas>
+        </div>
+        <div class="drawer-section" id="drawer-orderbook"></div>
+        <div class="drawer-section" id="drawer-metrics"></div>
+      </section>
+    </main>
+
+    <div class="spotlight-overlay" id="spotlight-overlay">
+      <div class="spotlight">
+        <input type="text" id="spotlight-input" placeholder="Search symbol…" />
+        <div class="spotlight-results" id="spotlight-results"></div>
+      </div>
+    </div>
+
+    <script>
+      const state = {
+        items: [],
+        filterSymbols: null,
+        sortKey: 'rank',
+        sortAsc: true,
+        filter: '',
+        selectedSymbol: null,
+        watchlists: [],
+        health: null,
+        weights: {
+          liquidity: 0,
+          momentum: 0,
+          spread: 0,
+          manipulation: 0,
+          notional: 0,
+        },
+      };
+
+      const bodyEl = document.getElementById('rankings-body');
+      const statusBar = document.getElementById('status-bar');
+      const drawerTitle = document.getElementById('drawer-title');
+      const drawerOverview = document.getElementById('drawer-overview');
+      const drawerOrderbook = document.getElementById('drawer-orderbook');
+      const drawerMetrics = document.getElementById('drawer-metrics');
+      const healthCycleEl = document.getElementById('health-cycle');
+      const healthLastSuccessEl = document.getElementById('health-last-success');
+      const healthFailuresEl = document.getElementById('health-failures');
+      const healthBackoffEl = document.getElementById('health-backoff');
+      const healthBreakerEl = document.getElementById('health-breaker');
+      const healthCooldownEl = document.getElementById('health-cooldown');
+      const healthStaleEl = document.getElementById('health-stale');
+      const healthErrorEl = document.getElementById('health-error');
+      const watchlistsEl = document.getElementById('watchlists');
+      const spotlightOverlay = document.getElementById('spotlight-overlay');
+      const spotlightInput = document.getElementById('spotlight-input');
+      const spotlightResults = document.getElementById('spotlight-results');
+
+      let ws;
+      let reconnectTimer;
+
+      function formatNumber(value) {
+        if (Math.abs(value) >= 1_000_000) {
+          return (value / 1_000_000).toFixed(2) + 'M';
+        }
+        if (Math.abs(value) >= 1_000) {
+          return (value / 1_000).toFixed(1) + 'k';
+        }
+        return value.toFixed(2);
+      }
+
+      function connectStream() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.close();
+        }
+        ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/stream/rankings`);
+        ws.onopen = () => {
+          statusBar.textContent = 'live';
+        };
+        ws.onclose = () => {
+          statusBar.textContent = 'reconnecting…';
+          clearTimeout(reconnectTimer);
+          reconnectTimer = setTimeout(connectStream, 3000);
+        };
+        ws.onmessage = (event) => {
+          try {
+            const frame = JSON.parse(event.data);
+            state.items = frame.items || [];
+            statusBar.textContent = `updated ${new Date(frame.ts).toLocaleTimeString()} | market gauge ${frame.market_gauge.toFixed(2)} | regime ${frame.volatility_bucket}`;
+            renderTable();
+            if (state.selectedSymbol) {
+              const match = state.items.find((i) => i.symbol === state.selectedSymbol);
+              if (match) {
+                renderDrawer(match);
+              }
+            }
+          } catch (err) {
+            console.error('stream parse error', err);
+          }
+        };
+      }
+
+      function renderTable() {
+        const sorted = [...state.items].sort((a, b) => {
+          const key = state.sortKey;
+          const av = a[key] ?? 0;
+          const bv = b[key] ?? 0;
+          if (av === bv) return 0;
+          return state.sortAsc ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+        });
+        const rows = sorted
+          .filter((item) => (!state.filter || item.symbol.toLowerCase().includes(state.filter.toLowerCase())) && (!state.filterSymbols || state.filterSymbols.has(item.symbol)))
+          .map((item) => {
+            const manipClass = item.manipulation_score && item.manipulation_score > 30 ? 'badge danger' : 'badge warn';
+            const flags = (item.manipulation_flags || []).map((flag) => `<span class="badge danger">${flag}</span>`).join('');
+            return `<tr data-symbol="${item.symbol}">
+              <td>${item.rank}</td>
               <td>${item.symbol}</td>
-              <td>${item.score.toFixed(2)}</td>
-              <td>${Math.round(item.qvol_usdt).toLocaleString()}</td>
-              <td>${item.atr_pct.toFixed(2)}</td>
+              <td class="${item.rank_delta > 0 ? 'positive' : item.rank_delta < 0 ? 'negative' : ''}">${item.score.toFixed(2)}</td>
+              <td>${item.liquidity_edge.toFixed(2)}</td>
+              <td>${item.momentum_edge.toFixed(2)}</td>
               <td>${item.spread_bps.toFixed(2)}</td>
               <td>${item.slip_bps.toFixed(2)}</td>
-              <td>${item.ret_15.toFixed(2)}</td>
-              <td>${item.ret_1.toFixed(2)}</td>
-              <td>${item.manip_score !== null && item.manip_score !== undefined ? item.manip_score.toFixed(2) : 'â€”'}</td>
-              <td>${renderFlags(item.manip_flags)}</td>
-            </tr>
-          `)
+              <td class="${item.volume_zscore > 0 ? 'positive' : 'negative'}">${item.volume_zscore.toFixed(2)}</td>
+              <td>${item.anomaly_residual.toFixed(2)}</td>
+              <td>${item.manipulation_score != null ? `<span class="${manipClass}">${item.manipulation_score.toFixed(1)}</span>` : '-'}</td>
+              <td>${flags}</td>
+            </tr>`;
+          })
+          .join('');
+        bodyEl.innerHTML = rows;
+      }
+
+      function renderHealth() {
+        if (!state.health) {
+          healthCycleEl.textContent = '--';
+          healthLastSuccessEl.textContent = '--';
+          healthFailuresEl.textContent = '0';
+          healthBackoffEl.textContent = '0s';
+          healthBreakerEl.dataset.state = 'idle';
+          healthBreakerEl.textContent = 'IDLE';
+          healthCooldownEl.textContent = '';
+          healthStaleEl.innerHTML = '<li><span>Loading...</span><span></span></li>';
+          healthErrorEl.textContent = '';
+          return;
+        }
+        const details = state.health;
+        const cycleMs = details.last_cycle_ms ?? 0;
+        healthCycleEl.textContent = cycleMs ? `${cycleMs.toFixed(0)} ms` : '--';
+        healthLastSuccessEl.textContent = details.last_success ? new Date(details.last_success).toLocaleTimeString() : '--';
+        healthFailuresEl.textContent = details.failure_streak ?? 0;
+        const backoff = details.backoff_sec ?? 0;
+        healthBackoffEl.textContent = backoff ? `${backoff.toFixed(1)}s` : '0s';
+        const breakerState = (details.adapter?.state || 'idle').toLowerCase();
+        healthBreakerEl.dataset.state = breakerState;
+        healthBreakerEl.textContent = breakerState.toUpperCase();
+        const cooldown = details.adapter?.cooldown_remaining ?? 0;
+        healthCooldownEl.textContent = cooldown > 0 ? `Cooldown: ${cooldown.toFixed(1)}s` : '';
+        const entries = Object.entries(details.symbols || {})
+          .sort((a, b) => ((b[1]?.stale || 0) - (a[1]?.stale || 0)))
+          .slice(0, 5);
+        if (!entries.length) {
+          healthStaleEl.innerHTML = '<li><span>All fresh</span><span></span></li>';
+        } else {
+          healthStaleEl.innerHTML = entries
+            .map(([sym, meta]) => {
+              const stale = meta?.stale ?? 0;
+              const latency = meta?.latency_ms ?? 0;
+              return `<li><span>${sym}</span><span>${stale.toFixed(1)}s | ${latency ? latency.toFixed(0) + 'ms' : '-'}</span></li>`;
+            })
+            .join('');
+        }
+        healthErrorEl.textContent = details.last_error ? `Last error: ${details.last_error}` : '';
+      }
+
+      async function pollHealth() {
+        try {
+          const response = await fetch('/healthz/details');
+          if (!response.ok) throw new Error('health fetch failed');
+          const payload = await response.json();
+          state.health = payload;
+          renderHealth();
+        } catch (err) {
+          console.error('health fetch failed', err);
+          healthErrorEl.textContent = 'Health unavailable';
+        }
+      }
+
+      bodyEl.addEventListener('click', (event) => {
+        const row = event.target.closest('tr');
+        if (!row) return;
+        const symbol = row.dataset.symbol;
+        const match = state.items.find((item) => item.symbol === symbol);
+        if (match) {
+          state.selectedSymbol = symbol;
+          renderDrawer(match);
+          fetchInspect(symbol);
+        }
+      });
+
+      function renderDrawer(item) {
+        drawerTitle.textContent = `${item.symbol} — score ${item.score.toFixed(2)}`;
+        drawerOverview.innerHTML = `
+          <p><strong>Rank:</strong> ${item.rank} (? ${item.rank_delta})</p>
+          <p><strong>Liquidity edge:</strong> ${item.liquidity_edge.toFixed(2)} | <strong>Momentum edge:</strong> ${item.momentum_edge.toFixed(2)}</p>
+          <p><strong>Spread:</strong> ${item.spread_bps.toFixed(2)} bps | <strong>Slip:</strong> ${item.slip_bps.toFixed(2)} bps</p>
+          <p><strong>VWAP distance:</strong> ${item.score_components?.vwap_distance ?? '—'}</p>
+        `;
+      }
+
+      async function fetchInspect(symbol) {
+        try {
+          const response = await fetch(`/symbol/${encodeURIComponent(symbol)}/inspect`);
+          if (!response.ok) throw new Error(await response.text());
+          const payload = await response.json();
+          drawerOrderbook.innerHTML = renderOrderBook(payload.orderbook || {});
+          drawerMetrics.innerHTML = renderMetrics(payload);
+          renderSparkline('sparkline-1m', payload.bars_1m || []);
+          renderSparkline('sparkline-5m', payload.bars_5m || []);
+        } catch (err) {
+          drawerMetrics.innerHTML = `<p style="color:#f87171;">${err}</p>`;
+        }
+      }
+
+      function renderOrderBook(book) {
+        const bids = (book.bids || []).slice(0, 5).map((level) => `<li>${level[0]} x ${level[1]}</li>`).join('');
+        const asks = (book.asks || []).slice(0, 5).map((level) => `<li>${level[0]} x ${level[1]}</li>`).join('');
+        return `<div style="display:flex; gap:1rem;">
+          <div><h4>Bids</h4><ol>${bids}</ol></div>
+          <div><h4>Asks</h4><ol>${asks}</ol></div>
+        </div>`;
+      }
+
+      function renderMetrics(payload) {
+        const rows = Object.entries(payload.metrics || {}).map(([key, value]) => `<li><strong>${key}:</strong> ${typeof value === 'number' ? value.toFixed(3) : value}</li>`).join('');
+        const micro = Object.entries(payload.micro || {}).map(([key, value]) => `<li>${key}: ${typeof value === 'number' ? value.toFixed(3) : value}</li>`).join('');
+        return `<div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:0.6rem;">
+          <div>
+            <h4>Execution</h4>
+            <ul>${rows}</ul>
+          </div>
+          <div>
+            <h4>Microstructure</h4>
+            <ul>${micro}</ul>
+          </div>
+        </div>`;
+      }
+
+      function renderSparkline(id, data) {
+        const canvas = document.getElementById(id);
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (!data.length) return;
+        const values = data.map((row) => row.close ?? row.value ?? 0);
+        const max = Math.max(...values);
+        const min = Math.min(...values);
+        const width = canvas.width;
+        const height = canvas.height;
+        ctx.beginPath();
+        values.forEach((value, idx) => {
+          const x = (idx / (values.length - 1)) * width;
+          const y = height - ((value - min) / (max - min || 1)) * height;
+          if (idx === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      document.querySelectorAll('th[data-sort]').forEach((th) => {
+        th.addEventListener('click', () => {
+          const key = th.dataset.sort;
+          if (state.sortKey === key) {
+            state.sortAsc = !state.sortAsc;
+          } else {
+            state.sortKey = key;
+            state.sortAsc = true;
+          }
+          renderTable();
+        });
+      });
+
+      document.getElementById('save-settings').addEventListener('click', async () => {
+        const payload = {
+          liquidity_weight: Number(document.getElementById('weight-liq').value),
+          momentum_weight: Number(document.getElementById('weight-mom').value),
+          spread_penalty: Number(document.getElementById('weight-spread').value),
+          manipulation_threshold: Number(document.getElementById('threshold-manip').value),
+          notional: Number(document.getElementById('input-notional').value),
+        };
+        await fetch('/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      });
+
+      document.getElementById('refresh-button').addEventListener('click', loadSettings);
+
+      async function loadSettings() {
+        try {
+          const response = await fetch('/settings');
+          if (!response.ok) throw new Error('Failed to load settings');
+          const payload = await response.json();
+          document.getElementById('weight-liq').value = payload.weights?.liquidity ?? 0;
+          document.getElementById('weight-mom').value = payload.weights?.momentum ?? 0;
+          document.getElementById('weight-spread').value = payload.weights?.spread ?? 0;
+          document.getElementById('threshold-manip').value = payload.manipulation_threshold ?? 0;
+          document.getElementById('input-notional').value = payload.notional ?? 5000;
+          state.filterSymbols = null;
+        renderWatchlists(payload.watchlists || []);
+        } catch (err) {
+          console.error(err);
+        }
+      }
+
+      function renderWatchlists(watchlists) {
+        state.watchlists = watchlists;
+        watchlistsEl.innerHTML = watchlists
+          .map((wl) => `<button data-name="${wl.name}">${wl.name}<span>${wl.symbols.length}</span></button>`)
           .join('');
       }
 
-      refreshBtn.addEventListener('click', loadData);
-      document.addEventListener('DOMContentLoaded', loadData);
+      watchlistsEl.addEventListener('click', (event) => {
+        const btn = event.target.closest('button');
+        if (!btn) return;
+        const name = btn.dataset.name;
+        const target = state.watchlists.find((wl) => wl.name === name);
+        if (target) {
+          state.filter = '';
+          state.filterSymbols = new Set(target.symbols);
+          renderTable();
+        }
+      });
+
+      document.getElementById('create-watchlist').addEventListener('click', async () => {
+        const name = document.getElementById('new-watchlist-name').value.trim();
+        if (!name) return;
+        await fetch('/watchlists', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
+        });
+        document.getElementById('new-watchlist-name').value = '';
+        loadSettings();
+      });
+
+      document.getElementById('spotlight-button').addEventListener('click', openSpotlight);
+      spotlightOverlay.addEventListener('click', (event) => {
+        if (event.target === spotlightOverlay) closeSpotlight();
+      });
+      spotlightInput.addEventListener('keydown', async (event) => {
+        if (event.key === 'Escape') {
+          closeSpotlight();
+          return;
+        }
+        if (event.key === 'Enter') {
+          const symbol = spotlightInput.value.trim().toUpperCase();
+          closeSpotlight();
+          if (symbol) {
+            fetchInspect(symbol);
+          }
+        } else {
+          await searchSymbol(spotlightInput.value);
+        }
+      });
+
+      async function searchSymbol(query) {
+        if (!query) {
+          spotlightResults.innerHTML = '';
+          return;
+        }
+        try {
+          const response = await fetch(`/symbol/${encodeURIComponent(query)}/inspect?mode=card`);
+          if (!response.ok) return;
+          const payload = await response.json();
+          spotlightResults.innerHTML = `<div data-symbol="${payload.symbol}">${payload.symbol} · score ${payload.score?.toFixed?.(2) ?? 'n/a'}</div>`;
+        } catch (err) {
+          console.error(err);
+        }
+      }
+
+      spotlightResults.addEventListener('click', (event) => {
+        const el = event.target.closest('div[data-symbol]');
+        if (!el) return;
+        const symbol = el.dataset.symbol;
+        closeSpotlight();
+        fetchInspect(symbol);
+      });
+
+      function openSpotlight() {
+        spotlightOverlay.style.display = 'flex';
+        spotlightInput.value = '';
+        spotlightResults.innerHTML = '';
+        setTimeout(() => spotlightInput.focus(), 0);
+      }
+      function closeSpotlight() {
+        spotlightOverlay.style.display = 'none';
+      }
+
+      document.addEventListener('keydown', (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+          event.preventDefault();
+          openSpotlight();
+        }
+      });
+
+      renderHealth();
+      connectStream();
+      loadSettings();
+      pollHealth();
+      setInterval(pollHealth, 8000);
     </script>
   </body>
 </html>
+

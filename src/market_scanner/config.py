@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     bar_1m_retention_days: int = Field(default=60, description="Retention for 1-minute bars in days.")
 
     metrics_enabled: bool = Field(default=True, description="Expose Prometheus metrics endpoint.")
+    alert_webhook_url: Optional[str] = Field(default=None, description="Optional webhook for alert fan-out.")
+    signal_channel: str = Field(default="scanner.signals", description="Redis pub/sub channel for signals.")
 
     @field_validator("postgres_url")
     @classmethod

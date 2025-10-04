@@ -10,7 +10,8 @@ Async FastAPI service that continuously ranks HTX USDT-margined perpetual swaps 
 - **HTX linear swaps only** - auto-discovers active USDT-M perps with concurrency limits and a CCXT circuit breaker to guard the exchange.
 - **Persistence & caching** - Redis serves the freshest snapshots while Postgres stores minute aggregates and ranking history for replay and audits.
 - **Observability** - JSON structured logs per cycle plus a Prometheus `/metrics` endpoint for latency, cache hits, and error counters.
-- **Operator panel** - `/panel` renders enriched factors, manipulation badges, and live Top-N tables.
+- **Realtime operator console** - `/panel` streams rankings via WebSocket/SSE, offers Spotlight search, a manipulation-aware drawer, and live latency/health metrics.
+- **Alerts & signal bus** - configurable Redis pub/sub channel (`scanner.signals`) with rule-based triggers and optional webhook fan-out.
 
 ## Requirements
 - Python **3.11+** (PEP 604 typing in use)
@@ -53,6 +54,14 @@ docker compose exec redis redis-cli ping
 
 **Heads up:** rankings and snapshots are cached in Redis for ~90 seconds. If you query the API outside that window you will get a 503 until the next scan finishes (watch the logs to confirm progress).
 
+## Realtime Operator Console
+- `/panel` opens a streaming table fed by `WS /stream/rankings` with an automatic SSE fallback at `/stream/events` for environments that block websockets.
+- Spotlight (`Ctrl+K`) queries `/symbol/{id}/inspect?mode=card` so you can jump to any contract without waiting for the batch loop.
+- Clicking a row loads `/symbol/{id}/inspect`, rendering sparklines, trade/microstructure readouts, execution metrics, and manipulation diagnostics.
+- The settings drawer persists sliders to `/settings` & `/watchlists`, hot-applies presets via `/profiles/apply`, and reflects the cached profile state.
+- The "System Health" widget polls `/healthz/details` to surface per-symbol latency, adaptive backoff windows, and CCXT circuit-breaker status.
+- Alerts triggered by ranking deltas or manipulation hits fan out through the Redis channel defined by `SCANNER_SIGNAL_CHANNEL`; optional webhooks are controlled via `SCANNER_ALERT_WEBHOOK_URL`.
+
 ## Local Development (without Docker)
 
 1. Copy `.env.example` to `.env` and adjust the same knobs described above (symbol allow list, timeouts, CA bundle).
@@ -73,6 +82,16 @@ C:\Users\epinn\miniconda3\python.exe collect_once.py
 ```
 
 That prints the top-ranked symbols, key metrics, manipulation score, and snapshot timestamp using the same settings as the service.
+
+## Make Targets
+| Command | Description |
+|---------|-------------|
+| `make fmt` | Format `src/` and `tests/` with Ruff. |
+| `make lint` | Run `ruff check` (warnings only, exit code ignored in CI). |
+| `make test` | Execute the pytest suite (`pytest -q`). |
+| `make up` | `docker compose up -d --build` for the full stack. |
+| `make down` | `docker compose down` to stop containers. |
+| `make seed` | Run `collect_once.py` to warm Redis/Postgres snapshots. |
 
 ## Configuration
 | Variable | Default | Description |
@@ -108,11 +127,18 @@ These factors feed the scoring presets and manipulation detector. Liquidity and 
 
 ## Endpoints
 - `GET /health` - readiness ping.
+- `GET /healthz/details` - expanded telemetry covering scan latency, breaker state, and stale symbols.
 - `GET /rankings` - pageable, filterable rankings. Supports `top`, `profile`, `min_qvol`, `max_spread_bps`, `notional`, `include_funding`, `include_basis`, `include_carry`, `max_manip_score`, and `exclude_flags` query params.
 - `GET /opportunities` - top-N idea list with side bias, ATR-derived stops/targets, and confidence penalised by manipulation risk.
-- `GET /panel` - lightweight HTML view of the latest Top-N with flag badges.
+- `GET /panel` - realtime scalper console streaming rankings, drill-downs, and health telemetry.
+- `WS /stream/rankings` - primary WebSocket feed for ranking frames (JSON payloads).
+- `GET /stream/events` - Server-Sent Events fallback emitting the same ranking frames.
+- `WS /stream` - lightweight heartbeat to help uptime monitors keep the connection warm.
+- `GET /symbol/{symbol}/inspect` - detailed microstructure, execution metrics, and order book snapshots for a single contract.
+- `GET|POST /settings` - persist operator profile weights, manipulation threshold, and notional overrides.
+- `GET|POST /watchlists` - create or update saved watchlists that drive panel filters.
+- `GET /profiles` & `POST /profiles/apply` - manage and hot-apply scoring presets without restarting the service.
 - `GET /metrics` - Prometheus metrics (enabled when `SCANNER_METRICS_ENABLED=true`).
-- `WS /stream` - heartbeat placeholder.
 
 ## Manipulation Score
 

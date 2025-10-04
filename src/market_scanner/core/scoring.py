@@ -1,20 +1,16 @@
-"""Scoring logic for market snapshots."""
+"""Scoring logic for market snapshots with breakdown support."""
 from __future__ import annotations
 
+from copy import deepcopy
 from math import log1p
-from typing import Iterable
+from typing import Dict, Iterable, Tuple
 
 from ..config import get_settings
 from .metrics import SymbolSnapshot
 
 REJECT_SCORE = -1_000_000.0
-# Manipulation penalties scale the final score so that high-risk symbols are deprioritized.
 MANIP_PENALTY_WEIGHT = 0.4
 
-# Weight presets are tuned for different trading styles. Each bucket maps to component weights
-# (liquidity, volatility, momentum, execution cost, carry). The values were chosen so that
-# liquidity and costs dominate the stack for scalp/news profiles while swing trades reward
-# sustained momentum and carry edges slightly more. See docs/scoring.md for rationale.
 WEIGHT_PRESETS: dict[str, dict[str, dict[str, float]]] = {
     "scalp": {
         "liq": {"qvol": 4.0, "depth": 3.5},
@@ -45,83 +41,124 @@ WEIGHT_PRESETS: dict[str, dict[str, dict[str, float]]] = {
     },
 }
 
+_PROFILE_OVERRIDES: dict[str, dict[str, dict[str, float]]] = {}
+
 
 def _scale_log(value: float, divisor: float) -> float:
     return log1p(max(0.0, value) / divisor)
 
 
-def _clamp(value: float, low: float, high: float) -> float:
-    return max(low, min(high, value))
+def _resolve_weights(profile: str) -> dict[str, dict[str, float]]:
+    base = deepcopy(WEIGHT_PRESETS.get(profile) or {})
+    override = _PROFILE_OVERRIDES.get(profile)
+    if not override:
+        return base
+    for section, section_weights in override.items():
+        base.setdefault(section, {})
+        base[section].update(section_weights)
+    return base
 
 
-def score(snapshot: SymbolSnapshot, profile: str = "scalp", include_carry: bool | None = None) -> float:
-    """Return a weighted score for a snapshot under the requested profile."""
+def set_profile_override(profile: str, weights: dict[str, dict[str, float]]) -> None:
+    """Override preset weights for hot-reloadable profiles."""
 
+    _PROFILE_OVERRIDES[profile] = deepcopy(weights)
+
+
+def score_with_breakdown(
+    snapshot: SymbolSnapshot,
+    profile: str = "scalp",
+    include_carry: bool | None = None,
+) -> Tuple[float, Dict[str, float]]:
     settings = get_settings()
-    weights = WEIGHT_PRESETS.get(profile)
-    if weights is None:
+    weights = _resolve_weights(profile)
+    if not weights:
         raise ValueError(f"Unknown profile '{profile}'. Available: {', '.join(sorted(WEIGHT_PRESETS))}")
 
-    if snapshot.qvol_usdt < settings.min_qvol_usdt:
-        return REJECT_SCORE
-    if snapshot.spread_bps > settings.max_spread_bps:
-        return REJECT_SCORE
+    if snapshot.qvol_usdt < settings.min_qvol_usdt or snapshot.spread_bps > settings.max_spread_bps:
+        return REJECT_SCORE, {}
 
-    liq = (
-        weights["liq"]["qvol"] * _scale_log(snapshot.qvol_usdt, 1_000_000.0)
-        + weights["liq"]["depth"] * _scale_log(snapshot.top5_depth_usdt, 100_000.0)
+    liquidity_component = (
+        weights.get("liq", {}).get("qvol", 0.0) * _scale_log(snapshot.qvol_usdt, 1_000_000.0)
+        + weights.get("liq", {}).get("depth", 0.0) * _scale_log(snapshot.top5_depth_usdt, 100_000.0)
     )
 
-    vol_component = weights["vol"]["atr"] * snapshot.atr_pct
-    mom_component = (
-        weights["mom"]["ret_15"] * snapshot.ret_15
-        + weights["mom"]["ret_1"] * snapshot.ret_1
+    volatility_component = weights.get("vol", {}).get("atr", 0.0) * snapshot.atr_pct
+
+    momentum_weights = weights.get("mom", {})
+    volatility_regime = snapshot.volatility_regime
+    momentum_scale = 0.7 if volatility_regime > 1.0 else 1.0
+    momentum_component = momentum_scale * (
+        momentum_weights.get("ret_15", 0.0) * snapshot.ret_15
+        + momentum_weights.get("ret_1", 0.0) * snapshot.ret_1
     )
 
     cost_penalty = (
-        weights["cost"]["spread"] * snapshot.spread_bps
-        + weights["cost"]["slip"] * snapshot.slip_bps
+        weights.get("cost", {}).get("spread", 0.0) * snapshot.spread_bps
+        + weights.get("cost", {}).get("slip", 0.0) * snapshot.slip_bps
     )
 
     carry_enabled = settings.include_carry if include_carry is None else include_carry
     carry_component = 0.0
     if carry_enabled:
-        funding = snapshot.funding_8h_pct
-        if funding is not None:
-            carry_component += weights["carry"]["funding"] * (-funding)
-        basis = snapshot.basis_bps
-        if basis is not None:
-            carry_component += weights["carry"]["basis"] * (-basis / 100.0)
+        if snapshot.funding_8h_pct is not None:
+            carry_component += weights.get("carry", {}).get("funding", 0.0) * (-snapshot.funding_8h_pct)
+        if snapshot.basis_bps is not None:
+            carry_component += weights.get("carry", {}).get("basis", 0.0) * (-snapshot.basis_bps / 100.0)
 
-    structure_weights = weights.get("structure")
-    structure_bonus = 0.0
-    structure_penalty = 0.0
-    if structure_weights:
-        volume_component = structure_weights.get("volume_z", 0.0) * max(-2.5, min(6.0, snapshot.volume_zscore))
-        velocity_component = structure_weights.get("velocity", 0.0) * max(-5.0, min(5.0, snapshot.price_velocity))
-        ofi_penalty = structure_weights.get("ofi", 0.0) * abs(snapshot.order_flow_imbalance)
-        volatility_penalty = structure_weights.get("volatility", 0.0) * abs(snapshot.volatility_regime)
-        anomaly_penalty = structure_weights.get("anomaly", 0.0) * (snapshot.anomaly_score / 10.0)
-        residual_penalty = structure_weights.get("residual", 0.0) * max(0.0, snapshot.anomaly_residual)
-        structure_bonus = volume_component + velocity_component
-        structure_penalty = ofi_penalty + volatility_penalty + anomaly_penalty + residual_penalty
+    structure_weights = weights.get("structure", {})
+    structure_bonus = (
+        structure_weights.get("volume_z", 0.0) * max(-2.5, min(6.0, snapshot.volume_zscore))
+        + structure_weights.get("velocity", 0.0) * max(-5.0, min(5.0, snapshot.price_velocity))
+    )
+    structure_penalty = (
+        structure_weights.get("ofi", 0.0) * abs(snapshot.order_flow_imbalance)
+        + structure_weights.get("volatility", 0.0) * abs(snapshot.volatility_regime)
+        + structure_weights.get("anomaly", 0.0) * (snapshot.anomaly_score / 10.0)
+        + structure_weights.get("residual", 0.0) * max(0.0, snapshot.anomaly_residual)
+    )
 
-    edges_component = 0.0
-    edges_weights = weights.get("edges")
-    if edges_weights:
-        edges_component = (
-            edges_weights.get("liquidity", 0.0) * _clamp(snapshot.liquidity_edge, -3.0, 3.0)
-            + edges_weights.get("momentum", 0.0) * _clamp(snapshot.momentum_edge, -3.0, 3.0)
-            + edges_weights.get("volatility", 0.0) * _clamp(snapshot.volatility_edge, -3.0, 3.0)
-            + edges_weights.get("micro", 0.0) * _clamp(snapshot.microstructure_edge, -3.0, 3.0)
-        )
+    edges_weights = weights.get("edges", {})
+    edges_component = (
+        edges_weights.get("liquidity", 0.0) * max(-3.0, min(3.0, snapshot.liquidity_edge))
+        + edges_weights.get("momentum", 0.0) * max(-3.0, min(3.0, snapshot.momentum_edge))
+        + edges_weights.get("volatility", 0.0) * max(-3.0, min(3.0, snapshot.volatility_edge))
+        + edges_weights.get("micro", 0.0) * max(-3.0, min(3.0, snapshot.microstructure_edge))
+    )
 
-    raw_score = liq + vol_component + mom_component + carry_component + structure_bonus + edges_component - cost_penalty - structure_penalty
+    total = (
+        liquidity_component
+        + volatility_component
+        + momentum_component
+        + carry_component
+        + structure_bonus
+        + edges_component
+        - cost_penalty
+        - structure_penalty
+    )
 
     if snapshot.manip_score is not None:
-        raw_score -= snapshot.manip_score * MANIP_PENALTY_WEIGHT
+        total -= snapshot.manip_score * MANIP_PENALTY_WEIGHT
 
-    return round(raw_score, 4)
+    breakdown = {
+        "liquidity": liquidity_component,
+        "volatility": volatility_component,
+        "momentum": momentum_component,
+        "carry": carry_component,
+        "structure_bonus": structure_bonus,
+        "structure_penalty": structure_penalty,
+        "edges": edges_component,
+        "cost": cost_penalty,
+        "manip_penalty": snapshot.manip_score * MANIP_PENALTY_WEIGHT if snapshot.manip_score is not None else 0.0,
+        "momentum_scale": momentum_scale,
+    }
+
+    return round(total, 4), breakdown
+
+
+def score(snapshot: SymbolSnapshot, profile: str = "scalp", include_carry: bool | None = None) -> float:
+    value, _ = score_with_breakdown(snapshot, profile=profile, include_carry=include_carry)
+    return value
 
 
 def rank(
@@ -130,11 +167,20 @@ def rank(
     profile: str = "scalp",
     include_carry: bool | None = None,
 ) -> list[SymbolSnapshot]:
-    """Sort snapshots by score, return the Top-N with the computed values attached."""
-
     scored: list[SymbolSnapshot] = []
     for snap in snaps:
-        snap_score = score(snap, profile=profile, include_carry=include_carry)
+        snap_score, _ = score_with_breakdown(snap, profile=profile, include_carry=include_carry)
         scored.append(snap.model_copy(update={"score": snap_score}))
     scored.sort(key=lambda s: s.score or REJECT_SCORE, reverse=True)
     return scored[: max(top, 0)]
+
+
+__all__ = [
+    "REJECT_SCORE",
+    "score",
+    "score_with_breakdown",
+    "rank",
+    "set_profile_override",
+]
+
+

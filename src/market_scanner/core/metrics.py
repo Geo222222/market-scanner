@@ -359,3 +359,4 @@ def pump_dump_score(ret_15: float, ret_1: float, volume_z: float, vol_regime: fl
     volatility_component = max(0.0, vol_regime)
     raw = (surge * 1.2) + (reversal * 1.6) + (volume_component * 6.0) + (volatility_component * 8.0)
     return max(0.0, min(100.0, raw))
+

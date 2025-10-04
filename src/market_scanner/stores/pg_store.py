@@ -12,12 +12,14 @@ from sqlalchemy import (
     Column,
     DateTime,
     Float,
+    ForeignKey,
     Integer,
     MetaData,
     String,
     Table,
     UniqueConstraint,
     delete,
+    func,
 )
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
@@ -104,6 +106,41 @@ BAR_TABLES = {
     "5s": BARS_5S,
     "1m": BARS_1M_OHLC,
 }
+
+USER_PROFILES = Table(
+    "user_profiles",
+    _METADATA,
+    Column("name", String(64), primary_key=True),
+    Column("weights", JSON, nullable=True),
+    Column("manipulation_threshold", Float, nullable=True),
+    Column("notional", Float, nullable=True),
+    Column("updated_at", DateTime(timezone=True), server_default=func.now(), onupdate=func.now()),
+)
+
+WATCHLISTS = Table(
+    "watchlists",
+    _METADATA,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("name", String(64), unique=True, nullable=False),
+    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+)
+
+WATCHLIST_SYMBOLS = Table(
+    "watchlist_symbols",
+    _METADATA,
+    Column("watchlist_id", Integer, ForeignKey("watchlists.id", ondelete="CASCADE"), primary_key=True),
+    Column("symbol", String(80), primary_key=True),
+    Column("position", Integer, nullable=False, default=0),
+)
+
+PROFILE_PRESETS = Table(
+    "profile_presets",
+    _METADATA,
+    Column("name", String(64), primary_key=True),
+    Column("weights", JSON, nullable=False),
+    Column("created_at", DateTime(timezone=True), server_default=func.now()),
+)
+
 
 _ENGINE: AsyncEngine | None = None
 _SESSION_FACTORY: sessionmaker[AsyncSession] | None = None

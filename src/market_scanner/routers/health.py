@@ -1,4 +1,8 @@
+from __future__ import annotations
+
 from fastapi import APIRouter
+
+from ..jobs.loop import get_health_state
 
 router = APIRouter()
 
@@ -7,6 +11,7 @@ router = APIRouter()
 async def health():
     return {"status": "ok"}
 
-# ONNYX | ONNX | DJM | DJ | ME | Jamaica — signature watermark
-# Owner: DJM (ONNYX) — Jamaica. If found elsewhere, contact ME.
-# ONNYX · ONNX · DJM · DJ · ME · Jamaica
+
+@router.get("/healthz/details")
+async def health_details():
+    return get_health_state()

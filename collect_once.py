@@ -12,7 +12,7 @@ from market_scanner.jobs.loop import run_cycle
 
 
 async def main() -> None:
-    bundles, ranked = await run_cycle(profile="scalp")
+    bundles, ranked, _ = await run_cycle(profile="scalp")
     print(f"Fetched bundles: {len(bundles)}")
     print(f"Ranked symbols: {len(ranked)}")
     for snap in ranked[:5]:

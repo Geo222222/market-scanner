@@ -45,6 +45,19 @@ class _CircuitBreaker:
         self.fail_count = 0
         self.blocked_until = 0.0
 
+    def state(self) -> str:
+        now = time.time()
+        if self.blocked_until and now < self.blocked_until:
+            return "open"
+        if self.fail_count > 0:
+            return "half-open"
+        return "closed"
+
+    def cooldown_remaining(self) -> float:
+        if not self.blocked_until:
+            return 0.0
+        return max(0.0, self.blocked_until - time.time())
+
 
 class CCXTAdapter:
     """Async thin wrapper around CCXT with exponential backoff and normalization."""
@@ -171,6 +184,16 @@ class CCXTAdapter:
             "openInterest": raw.get("openInterest") or raw.get("open_interest"),
             "timestamp": raw.get("timestamp") or raw.get("ts"),
         }
+
+    def snapshot_state(self) -> dict[str, float | int | str]:
+        return {
+            "exchange": self.exchange_id,
+            "state": self._breaker.state(),
+            "fail_count": self._breaker.fail_count,
+            "cooldown_remaining": round(self._breaker.cooldown_remaining(), 3),
+            "threshold": self._breaker.threshold,
+        }
+
 
     async def _call(self, method: str, *args: Any, **kwargs: Any) -> Any:
         if not self._breaker.allow():

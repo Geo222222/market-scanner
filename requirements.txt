@@ -13,3 +13,5 @@ redis>=5.0.0
 SQLAlchemy>=2.0.32
 uvicorn[standard]>=0.30.0
 websockets>=11.0
+alembic>=1.13.0
+ruff>=0.6.0

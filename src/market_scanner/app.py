@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -11,7 +11,16 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from .config import get_settings
 from .jobs.loop import loop as scanner_loop
-from .routers import health, symbols, rankings, opportunities, stream
+from .routers import (
+    health,
+    symbols,
+    rankings,
+    opportunities,
+    stream,
+    settings as settings_routes,
+    watchlists,
+    profiles,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -51,3 +60,4 @@ if settings.metrics_enabled:
     @app.get("/metrics", include_in_schema=False)
     async def metrics_endpoint() -> Response:
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+

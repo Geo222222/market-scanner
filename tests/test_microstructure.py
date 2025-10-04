@@ -1,6 +1,8 @@
+from datetime import datetime, timezone
 import math
 
 from market_scanner.core.metrics import (
+    SymbolSnapshot,
     closes_from_ohlcv,
     order_flow_imbalance,
     price_velocity,
@@ -8,6 +10,7 @@ from market_scanner.core.metrics import (
     volume_zscore,
     volatility_regime,
 )
+from market_scanner.engine.microstructure import compute_microstructure_features
 from market_scanner.manip.detector import detect_manipulation
 
 
@@ -70,3 +73,32 @@ def test_detect_manipulation_emits_new_features():
     assert "pump_dump_score" in result.features
     assert result.features["volume_zscore"] > 0
     assert any(flag in {"post_surge_reversal", "wash_trade_volume"} for flag in result.flags)
+
+
+
+def test_microstructure_features_track_decay():
+    snapshot = SymbolSnapshot(
+        symbol="TEST/USDT:USDT",
+        qvol_usdt=50_000_000,
+        spread_bps=4.0,
+        top5_depth_usdt=1_000_000,
+        atr_pct=1.0,
+        ret_1=0.5,
+        ret_15=1.5,
+        slip_bps=3.0,
+        funding_8h_pct=0.01,
+        open_interest=10_000,
+        basis_bps=5.0,
+        volume_zscore=2.5,
+        order_flow_imbalance=0.7,
+        volatility_regime=0.8,
+        price_velocity=0.4,
+        anomaly_score=12.0,
+        depth_to_volume_ratio=0.8,
+        manip_score=None,
+        manip_flags=None,
+        ts=datetime.now(timezone.utc),
+    )
+    features, telemetry = compute_microstructure_features("TEST/USDT:USDT", snapshot, 5000)
+    assert "depth_decay" in telemetry
+    assert isinstance(features.trade_imbalance, float)
