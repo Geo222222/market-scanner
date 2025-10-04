@@ -1,4 +1,4 @@
-﻿"""Rankings router with paging, filters, and Redis-backed snapshots."""
+"""Rankings router with paging, filters, and Redis-backed snapshots."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -43,6 +43,17 @@ class RankingItem(BaseModel):
     funding_8h_pct: float | None = None
     open_interest: float | None = None
     basis_bps: float | None = None
+    volume_zscore: float | None = None
+    order_flow_imbalance: float | None = None
+    volatility_regime: float | None = None
+    price_velocity: float | None = None
+    anomaly_score: float | None = None
+    depth_to_volume_ratio: float | None = None
+    liquidity_edge: float | None = None
+    momentum_edge: float | None = None
+    volatility_edge: float | None = None
+    microstructure_edge: float | None = None
+    anomaly_residual: float | None = None
     manip_score: float | None = None
     manip_flags: list[str] | None = None
 
@@ -140,6 +151,17 @@ async def _load_from_cache(profile: str) -> tuple[list[SymbolSnapshot], datetime
                     funding_8h_pct=row.get("funding_8h_pct"),
                     open_interest=row.get("open_interest"),
                     basis_bps=row.get("basis_bps"),
+                    volume_zscore=float(row.get("volume_zscore", 0.0)),
+                    order_flow_imbalance=float(row.get("order_flow_imbalance", row.get("imbalance", 0.0))),
+                    volatility_regime=float(row.get("volatility_regime", 0.0)),
+                    price_velocity=float(row.get("price_velocity", 0.0)),
+                    anomaly_score=float(row.get("anomaly_score", 0.0)),
+                    depth_to_volume_ratio=float(row.get("depth_to_volume_ratio", row.get("depth_to_volume", 0.0))),
+                    liquidity_edge=float(row.get("liquidity_edge", 0.0)),
+                    momentum_edge=float(row.get("momentum_edge", 0.0)),
+                    volatility_edge=float(row.get("volatility_edge", 0.0)),
+                    microstructure_edge=float(row.get("microstructure_edge", 0.0)),
+                    anomaly_residual=float(row.get("anomaly_residual", 0.0)),
                     manip_score=row.get("manip_score"),
                     manip_flags=row.get("manip_flags"),
                     ts=ts,
@@ -208,6 +230,17 @@ async def get_rankings_endpoint(params: RankingQuery = Depends(_query_params)) -
             funding_8h_pct=snap.funding_8h_pct,
             open_interest=snap.open_interest,
             basis_bps=snap.basis_bps,
+            volume_zscore=snap.volume_zscore,
+            order_flow_imbalance=snap.order_flow_imbalance,
+            volatility_regime=snap.volatility_regime,
+            price_velocity=snap.price_velocity,
+            anomaly_score=snap.anomaly_score,
+            depth_to_volume_ratio=snap.depth_to_volume_ratio,
+            liquidity_edge=snap.liquidity_edge,
+            momentum_edge=snap.momentum_edge,
+            volatility_edge=snap.volatility_edge,
+            microstructure_edge=snap.microstructure_edge,
+            anomaly_residual=snap.anomaly_residual,
             manip_score=snap.manip_score,
             manip_flags=snap.manip_flags,
         )

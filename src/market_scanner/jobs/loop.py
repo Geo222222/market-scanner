@@ -16,13 +16,21 @@ from ..core.metrics import (
     SymbolSnapshot,
     atr_pct,
     basis_bp,
+    closes_from_ohlcv,
     estimate_slippage_bps,
     funding_8h_pct,
+    latest_volume_usdt,
+    order_flow_imbalance,
+    price_velocity,
+    pump_dump_score,
     quote_volume_usdt,
     returns,
     spread_bps,
     top5_depth_usdt,
+    volume_zscore,
+    volatility_regime,
 )
+from ..core.factors import enrich_cross_sectional
 from ..core.scoring import rank
 from ..manip.detector import detect_manipulation
 from ..observability import record_cycle
@@ -96,43 +104,38 @@ def _extract_spot_reference(ticker: dict[str, Any]) -> float | None:
     return None
 
 
-def _closes_from_ohlcv(ohlcv: Sequence[Any]) -> list[float]:
-    closes: list[float] = []
-    for row in ohlcv:
-        if isinstance(row, dict) and "close" in row:
-            try:
-                closes.append(float(row["close"]))
-                continue
-            except (TypeError, ValueError):
-                pass
-        try:
-            if len(row) > 4:
-                closes.append(float(row[4]))
-        except (TypeError, ValueError):
-            continue
-    return closes
-
-
 async def _build_snapshot(adapter: CCXTAdapter, symbol: str) -> SnapshotBundle | None:
     settings = get_settings()
     try:
-        ticker = await adapter.fetch_ticker(symbol)
-        orderbook = await adapter.fetch_order_book(symbol, limit=50)
-        ohlcv = await adapter.fetch_ohlcv(symbol, settings.timeframe, 200)
+        ticker_task = adapter.fetch_ticker(symbol)
+        orderbook_task = adapter.fetch_order_book(symbol, limit=50)
+        ohlcv_task = adapter.fetch_ohlcv(symbol, settings.timeframe, 200)
+        ticker, orderbook, ohlcv = await asyncio.gather(ticker_task, orderbook_task, ohlcv_task)
     except AdapterError as exc:
         LOGGER.debug("Adapter mandatory fetch failed for %s: %s", symbol, exc)
         return None
 
     funding = None
     open_interest = None
-    try:
-        funding = await adapter.fetch_funding_rate(symbol)
-    except AdapterError:
-        pass
-    try:
-        open_interest = await adapter.fetch_open_interest(symbol)
-    except AdapterError:
-        pass
+    opt_results = await asyncio.gather(
+        adapter.fetch_funding_rate(symbol),
+        adapter.fetch_open_interest(symbol),
+        return_exceptions=True,
+    )
+    if opt_results:
+        fund_res, oi_res = opt_results
+        if isinstance(fund_res, AdapterError):
+            pass
+        elif isinstance(fund_res, Exception):
+            LOGGER.debug("Funding fetch error for %s: %s", symbol, fund_res)
+        else:
+            funding = fund_res
+        if isinstance(oi_res, AdapterError):
+            pass
+        elif isinstance(oi_res, Exception):
+            LOGGER.debug("Open interest fetch error for %s: %s", symbol, oi_res)
+        else:
+            open_interest = oi_res
 
     bid = ticker.get("bid") or (orderbook.get("bids") or [[None]])[0][0]
     ask = ticker.get("ask") or (orderbook.get("asks") or [[None]])[0][0]
@@ -140,7 +143,10 @@ async def _build_snapshot(adapter: CCXTAdapter, symbol: str) -> SnapshotBundle |
     spread = spread_bps(bid, ask)
     depth = top5_depth_usdt(orderbook)
     atr = atr_pct(ohlcv)
-    closes = _closes_from_ohlcv(ohlcv)
+    closes = closes_from_ohlcv(ohlcv)
+    close_price = closes[-1] if closes else float(ticker.get("last") or 0.0)
+    bar_volume_usdt = latest_volume_usdt(ohlcv, close_price)
+    depth_to_volume = (depth / bar_volume_usdt) if bar_volume_usdt > 0 else 0.0
     momentum = returns(closes, lookback=15)
     slip = estimate_slippage_bps(orderbook, settings.notional_test, side="both")
     funding_pct = funding_8h_pct((funding or {}).get("fundingRate") if funding else None)
@@ -151,7 +157,11 @@ async def _build_snapshot(adapter: CCXTAdapter, symbol: str) -> SnapshotBundle |
         except (TypeError, ValueError):
             oi_value = None
     basis = basis_bp(ticker.get("last"), _extract_spot_reference(ticker))
-    close_price = closes[-1] if closes else float(ticker.get("last") or 0.0)
+    volume_z = volume_zscore(ohlcv)
+    vol_reg = volatility_regime(closes)
+    velocity = price_velocity(closes)
+    ofi = order_flow_imbalance(orderbook)
+    pump_score = pump_dump_score(momentum["ret_15"], momentum["ret_1"], volume_z, vol_reg)
     ts = datetime.now(timezone.utc)
 
     manip_result = detect_manipulation(
@@ -167,6 +177,13 @@ async def _build_snapshot(adapter: CCXTAdapter, symbol: str) -> SnapshotBundle |
         timestamp=ts.timestamp(),
     )
 
+    features = dict(manip_result.features or {})
+    features.setdefault("volume_zscore", round(volume_z, 2))
+    features.setdefault("vol_regime", round(vol_reg, 4))
+    features.setdefault("velocity", round(velocity, 4))
+    features.setdefault("order_flow_imbalance", round(ofi, 4))
+    features.setdefault("depth_to_volume", round(depth_to_volume, 4))
+    features.setdefault("latest_volume_usdt", round(bar_volume_usdt, 2))
     snapshot = SymbolSnapshot(
         symbol=symbol,
         qvol_usdt=qvol,
@@ -179,11 +196,17 @@ async def _build_snapshot(adapter: CCXTAdapter, symbol: str) -> SnapshotBundle |
         funding_8h_pct=funding_pct,
         open_interest=oi_value,
         basis_bps=basis,
+        volume_zscore=volume_z,
+        order_flow_imbalance=ofi,
+        volatility_regime=vol_reg,
+        price_velocity=velocity,
+        anomaly_score=pump_score,
+        depth_to_volume_ratio=depth_to_volume,
         manip_score=manip_result.score,
         manip_flags=manip_result.flags or None,
         ts=ts,
     )
-    return SnapshotBundle(snapshot=snapshot, close=close_price, manip_features=manip_result.features)
+    return SnapshotBundle(snapshot=snapshot, close=close_price, manip_features=features)
 
 
 async def _collect_snapshots(adapter: CCXTAdapter, symbols: list[str]) -> list[SnapshotBundle]:
@@ -199,6 +222,10 @@ async def _collect_snapshots(adapter: CCXTAdapter, symbols: list[str]) -> list[S
             if res is None:
                 continue
             bundles.append(res)
+    if bundles:
+        enriched = enrich_cross_sectional([bundle.snapshot for bundle in bundles])
+        for bundle, snap in zip(bundles, enriched):
+            bundle.snapshot = snap
     return bundles
 
 
@@ -219,6 +246,17 @@ def _build_ranking_rows(snaps: list[SymbolSnapshot]) -> list[dict[str, Any]]:
                 "funding_8h_pct": snap.funding_8h_pct,
                 "open_interest": snap.open_interest,
                 "basis_bps": snap.basis_bps,
+                "volume_zscore": snap.volume_zscore,
+                "order_flow_imbalance": snap.order_flow_imbalance,
+                "volatility_regime": snap.volatility_regime,
+                "price_velocity": snap.price_velocity,
+                "anomaly_score": snap.anomaly_score,
+                "depth_to_volume_ratio": snap.depth_to_volume_ratio,
+                "liquidity_edge": snap.liquidity_edge,
+                "momentum_edge": snap.momentum_edge,
+                "volatility_edge": snap.volatility_edge,
+                "microstructure_edge": snap.microstructure_edge,
+                "anomaly_residual": snap.anomaly_residual,
                 "manip_score": snap.manip_score,
                 "manip_flags": snap.manip_flags,
             }

@@ -3,6 +3,7 @@
 import pytest
 
 from market_scanner.core.metrics import SymbolSnapshot
+from market_scanner.core.factors import enrich_cross_sectional
 from market_scanner.core.scoring import REJECT_SCORE, rank, score
 
 
@@ -59,3 +60,13 @@ def test_rank_stamps_scores(base_ts: datetime):
     assert len(ranked) == 2
     assert ranked[0].score is not None
     assert ranked[0].score >= ranked[1].score
+
+
+def test_cross_sectional_edges_shift_rankings(base_ts: datetime):
+    rich = make_snapshot("RICH", 220_000_000, 2.0, 6_000_000, 1.2, 0.6, 1.4, 2.5, 0.0, base_ts)
+    mid = make_snapshot("MID", 140_000_000, 3.5, 3_500_000, 1.0, 0.4, 0.9, 3.5, 0.0, base_ts)
+    poor = make_snapshot("POOR", 80_000_000, 5.0, 1_100_000, 0.9, 0.2, 0.4, 6.0, 0.0, base_ts)
+    enriched = enrich_cross_sectional([rich, mid, poor])
+    ranked = rank(enriched, top=3, profile="scalp")
+    assert ranked[0].symbol == "RICH"
+    assert ranked[-1].symbol == "POOR"

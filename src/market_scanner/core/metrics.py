@@ -1,9 +1,9 @@
-﻿"""Pure analytics functions and data models for market snapshots."""
+"""Pure analytics functions and data models for market snapshots."""
 from __future__ import annotations
 
 from datetime import datetime
-from math import log1p
-from statistics import mean
+from math import log1p, log
+from statistics import StatisticsError, mean, median, pstdev
 from typing import Iterable, Mapping, Sequence
 
 from pydantic import BaseModel, Field
@@ -23,6 +23,17 @@ class SymbolSnapshot(BaseModel):
     funding_8h_pct: float | None = Field(None, description="Funding rate expressed per 8h period in percent.")
     open_interest: float | None = Field(None, description="Open interest for the contract, if available.")
     basis_bps: float | None = Field(None, description="Basis between perp and spot markets in basis points.")
+    volume_zscore: float = Field(0.0, description="Z-score of the latest volume relative to a trailing baseline.")
+    order_flow_imbalance: float = Field(0.0, description="Normalized order-flow imbalance across the top book levels (-1 to 1).")
+    volatility_regime: float = Field(0.0, description="Short/long realized volatility ratio minus one.")
+    price_velocity: float = Field(0.0, description="Recent price velocity expressed as percent change per bar.")
+    anomaly_score: float = Field(0.0, description="Composite anomaly score capturing pump-and-dump or wash-trading signatures.")
+    depth_to_volume_ratio: float = Field(0.0, description="Top-5 book depth divided by the latest bar quote volume.")
+    liquidity_edge: float = Field(0.0, description="Cross-sectional liquidity edge (z-score), positive means deeper and tighter than peers.")
+    momentum_edge: float = Field(0.0, description="Cross-sectional momentum edge (z-score) from intraday returns.")
+    volatility_edge: float = Field(0.0, description="Cross-sectional volatility regime edge (z-score).")
+    microstructure_edge: float = Field(0.0, description="Cross-sectional microstructure health edge (z-score).")
+    anomaly_residual: float = Field(0.0, description="Residual anomaly pressure vs peers (positive implies more suspicious flow).")
     manip_score: float | None = Field(None, description="Heuristic manipulation risk score (0-100).")
     manip_flags: list[str] | None = Field(None, description="List of triggered manipulation signals.")
     ts: datetime = Field(..., description="Timestamp when the snapshot was computed.")
@@ -219,3 +230,132 @@ def funding_8h_pct(raw_rate: float | None) -> float | None:
     if rate == 0.0:
         return None
     return rate * 100.0
+
+
+def closes_from_ohlcv(ohlcv: Sequence[Sequence[float] | Mapping[str, float]]) -> list[float]:
+    """Extract closing prices from OHLCV rows."""
+
+    closes: list[float] = []
+    for row in ohlcv:
+        if isinstance(row, Mapping) and "close" in row:
+            try:
+                closes.append(float(row["close"]))
+                continue
+            except (TypeError, ValueError):
+                pass
+        try:
+            if len(row) > 4:
+                closes.append(float(row[4]))
+        except (TypeError, ValueError):
+            continue
+    return closes
+
+
+def latest_volume_usdt(
+    ohlcv: Sequence[Sequence[float] | Mapping[str, float]],
+    fallback_price: float,
+) -> float:
+    """Return the most recent bar volume converted to quote notionals."""
+
+    price = max(_to_float(fallback_price), 0.0)
+    for row in reversed(ohlcv):
+        volume = _extract_ohlcv_value(row, 5, "volume")
+        if volume > 0:
+            close = _extract_ohlcv_value(row, 4, "close") or price
+            if close <= 0:
+                close = price if price > 0 else 0.0
+            return max(volume * close, 0.0)
+    return 0.0
+
+
+def order_flow_imbalance(orderbook: Mapping[str, Sequence[Sequence[float]]], depth: int = 10) -> float:
+    """Return normalized order-flow imbalance using notional amounts."""
+
+    bids = orderbook.get("bids") or []
+    asks = orderbook.get("asks") or []
+    bid_notional = sum(_to_float(price) * _to_float(amount) for price, amount in bids[:depth])
+    ask_notional = sum(_to_float(price) * _to_float(amount) for price, amount in asks[:depth])
+    total = bid_notional + ask_notional
+    if total <= 0:
+        return 0.0
+    return (bid_notional - ask_notional) / total
+
+
+def volume_zscore(ohlcv: Sequence[Sequence[float] | Mapping[str, float]], lookback: int = 60) -> float:
+    """Compute a rolling z-score for the latest volume."""
+
+    if lookback <= 1:
+        return 0.0
+    volumes: list[float] = []
+    for row in ohlcv:
+        vol = _extract_ohlcv_value(row, 5, "volume")
+        if vol <= 0 and isinstance(row, Mapping):
+            for key in ("quoteVolume", "baseVolume", "volume"):
+                if key in row:
+                    vol = _to_float(row[key])
+                    if vol > 0:
+                        break
+        if vol > 0:
+            volumes.append(vol)
+    if len(volumes) < 10:
+        return 0.0
+    window = volumes[-lookback:]
+    if len(window) < 2:
+        return 0.0
+    try:
+        sigma = pstdev(window)
+    except StatisticsError:
+        sigma = 0.0
+    if sigma <= 1e-6:
+        return 0.0
+    center = median(window)
+    z = (window[-1] - center) / sigma
+    return max(-10.0, min(10.0, z))
+
+
+def volatility_regime(closes: Sequence[float], short_window: int = 20, long_window: int = 60) -> float:
+    """Return the short/long realized volatility ratio minus one."""
+
+    prices = [value for value in closes if value and value > 0]
+    if len(prices) <= long_window:
+        return 0.0
+    log_returns: list[float] = []
+    for prev, curr in zip(prices, prices[1:]):
+        if prev > 0 and curr > 0:
+            log_returns.append(log(curr / prev))
+    if len(log_returns) < long_window or long_window <= 1:
+        return 0.0
+    try:
+        short_sigma = pstdev(log_returns[-short_window:])
+        long_sigma = pstdev(log_returns[-long_window:])
+    except StatisticsError:
+        return 0.0
+    if long_sigma <= 1e-9:
+        return 0.0
+    ratio = short_sigma / long_sigma
+    return max(-1.0, min(5.0, ratio - 1.0))
+
+
+def price_velocity(closes: Sequence[float], window: int = 5) -> float:
+    """Return normalized price velocity (% change per bar)."""
+
+    prices = [value for value in closes if value and value > 0]
+    if len(prices) <= window:
+        return 0.0
+    start = prices[-window-1]
+    end = prices[-1]
+    if start <= 0:
+        return 0.0
+    velocity = ((end / start) - 1.0) * (100.0 / window)
+    return max(-10.0, min(10.0, velocity))
+
+
+def pump_dump_score(ret_15: float, ret_1: float, volume_z: float, vol_regime: float) -> float:
+    """Composite anomaly score highlighting pump-and-dump style behaviour."""
+
+    surge = max(0.0, ret_15)
+    reversal = max(0.0, -ret_1)
+    volume_component = max(0.0, abs(volume_z) - 1.5)
+    volatility_component = max(0.0, vol_regime)
+    raw = (surge * 1.2) + (reversal * 1.6) + (volume_component * 6.0) + (volatility_component * 8.0)
+    return max(0.0, min(100.0, raw))
