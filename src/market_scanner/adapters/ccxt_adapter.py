@@ -185,6 +185,42 @@ class CCXTAdapter:
             "timestamp": raw.get("timestamp") or raw.get("ts"),
         }
 
+    async def fetch_trades(self, symbol: str, limit: int = 100) -> list[dict[str, Any]]:
+        if not hasattr(self._exchange, "fetch_trades"):
+            return []
+        raw = await self._call("fetch_trades", symbol, limit=limit)
+        if not raw:
+            return []
+        normalised: list[dict[str, Any]] = []
+        for trade in raw[-limit:]:
+            ts = trade.get("timestamp") or trade.get("datetime")
+            side = trade.get("side") or ""  # CCXT normalises to buy/sell
+            price = trade.get("price")
+            amount = trade.get("amount")
+            cost = trade.get("cost")
+            try:
+                price_f = float(price) if price is not None else None
+            except (TypeError, ValueError):
+                price_f = None
+            try:
+                amount_f = float(amount) if amount is not None else None
+            except (TypeError, ValueError):
+                amount_f = None
+            try:
+                cost_f = float(cost) if cost is not None else None
+            except (TypeError, ValueError):
+                cost_f = None
+            normalised.append(
+                {
+                    "ts": ts,
+                    "price": price_f,
+                    "amount": amount_f,
+                    "cost": cost_f,
+                    "side": side,
+                }
+            )
+        return normalised
+
     def snapshot_state(self) -> dict[str, float | int | str]:
         return {
             "exchange": self.exchange_id,

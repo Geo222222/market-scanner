@@ -71,8 +71,9 @@ async def inspect_symbol(symbol: str, mode: str | None = Query(default=None)):
             "momentum_edge": snapshot.momentum_edge,
         }
 
-    bars_1m = await fetch_recent_bars(symbol, "1m", limit=60)
+    bars_1m = await fetch_recent_bars(symbol, "1m", limit=200)
     bars_5m = _aggregate_bars(bars_1m, window=5)
+    bars_15m = _aggregate_bars(bars_1m, window=15)
 
     response = {
         "symbol": snapshot.symbol,
@@ -82,8 +83,11 @@ async def inspect_symbol(symbol: str, mode: str | None = Query(default=None)):
         "momentum": bundle.momentum,
         "micro": bundle.micro_features,
         "metrics": {**bundle.execution, **breakdown},
+        "manip_features": bundle.manip_features,
         "bars_1m": bars_1m,
         "bars_5m": bars_5m,
+        "bars_15m": bars_15m,
+        "trades": (bundle.trades or [])[-50:],
         "spread_history": get_spread_history(symbol),
     }
     return response

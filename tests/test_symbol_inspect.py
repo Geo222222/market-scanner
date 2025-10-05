@@ -47,6 +47,7 @@ async def test_symbol_inspect(monkeypatch):
         momentum={'z_1m': 0.2},
         micro_features={'depth_decay': 0.1},
         execution={'queue_position': 0.5},
+        trades=[],
         fetch_latency_ms=12.0,
     )
 

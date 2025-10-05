@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     include_carry: bool = Field(default=True, description="Whether to include carry inputs (funding/basis) in scoring.")
 
     scan_interval_sec: int = Field(default=15, validation_alias=AliasChoices("scan_interval_sec", "scan_interval_s"))
+    scan_sla_warn_multiplier: float = Field(default=2.0, description="Multiplier of target cycle time before warning level.")
+    scan_sla_critical_multiplier: float = Field(default=3.0, description="Multiplier of target cycle time before critical level.")
     markets_cache_ttl_sec: int = Field(default=600, validation_alias=AliasChoices("markets_cache_ttl_sec", "markets_cache_ttl_s"))
     adapter_timeout_sec: float = Field(default=90.0)
     adapter_max_failures: int = Field(default=5, description="Failures before the adapter circuit opens.")

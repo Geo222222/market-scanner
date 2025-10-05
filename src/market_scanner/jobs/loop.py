@@ -5,10 +5,10 @@ import asyncio
 import json
 import logging
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 from ..adapters.ccxt_adapter import AdapterError, CCXTAdapter
 from ..config import get_settings
@@ -36,7 +36,7 @@ from ..engine.alerts import get_signal_bus
 from ..engine.execution import queue_position_estimate, simulated_impact, spread_history_update
 from ..engine.microstructure import compute_microstructure_features
 from ..engine.momentum import assemble_momentum_snapshot
-from ..engine.runtime import get_notional_override, get_manipulation_threshold
+from ..engine.runtime import get_manipulation_threshold, get_notional_override
 from ..engine.streaming import RankingFrame, RankingSymbolFrame, get_ranking_broadcast
 from ..manip.detector import detect_manipulation
 from ..observability import record_cycle
@@ -65,8 +65,94 @@ _HEALTH_STATE: dict[str, Any] = {
         "cooldown_remaining": 0.0,
         "threshold": get_settings().adapter_max_failures,
     },
+    "target_cycle_ms": get_settings().scan_interval_sec * 1000,
+    "sla": {
+        "warn": get_settings().scan_sla_warn_multiplier,
+        "critical": get_settings().scan_sla_critical_multiplier,
+    },
+    "cycle_history_ms": [],
+    "control": {},
     "symbols": {},
 }
+
+_PAUSE_EVENT = asyncio.Event()
+_PAUSE_EVENT.set()
+
+_FORCE_EVENT = asyncio.Event()
+
+_CONTROL_AUDIT: deque[dict[str, Any]] = deque(maxlen=200)
+_CONTROL_STATE: dict[str, Any] = {
+    "paused": False,
+    "breaker": {
+        "manual_state": "closed",
+        "last_reason": None,
+        "updated_at": None,
+    },
+}
+
+_HEALTH_STATE["control"] = _snapshot_control_state()
+
+
+def _snapshot_control_state() -> dict[str, Any]:
+    return {
+        "paused": _CONTROL_STATE.get("paused", False),
+        "breaker": dict(_CONTROL_STATE.get("breaker", {})),
+        "audit": list(_CONTROL_AUDIT)[-20:],
+    }
+
+
+def get_control_state() -> dict[str, Any]:
+    return json.loads(json.dumps(_snapshot_control_state()))
+
+
+def _log_control_event(action: str, actor: str, detail: Optional[dict[str, Any]] = None) -> None:
+    entry = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "action": action,
+        "actor": actor,
+        "detail": detail or {},
+    }
+    _CONTROL_AUDIT.append(entry)
+    _HEALTH_STATE["control"] = _snapshot_control_state()
+
+
+async def request_force_scan(actor: str = "system", reason: Optional[str] = None) -> dict[str, Any]:
+    if not _PAUSE_EVENT.is_set():
+        return {"queued": False, "reason": "paused"}
+    _FORCE_EVENT.set()
+    _log_control_event("force_scan_requested", actor, {"reason": reason})
+    return {"queued": True}
+
+
+async def pause_scanner(actor: str = "system", reason: Optional[str] = None) -> dict[str, Any]:
+    if not _PAUSE_EVENT.is_set():
+        return {"paused": True}
+    _PAUSE_EVENT.clear()
+    _CONTROL_STATE["paused"] = True
+    _log_control_event("paused", actor, {"reason": reason})
+    return {"paused": True}
+
+
+async def resume_scanner(actor: str = "system", reason: Optional[str] = None) -> dict[str, Any]:
+    if _PAUSE_EVENT.is_set():
+        return {"paused": False}
+    _PAUSE_EVENT.set()
+    _CONTROL_STATE["paused"] = False
+    _log_control_event("resumed", actor, {"reason": reason})
+    return {"paused": False}
+
+
+def set_manual_breaker(state: str, actor: str = "system", reason: Optional[str] = None) -> dict[str, Any]:
+    state = state.lower()
+    if state not in {"open", "closed"}:
+        raise ValueError("Breaker state must be 'open' or 'closed'")
+    _CONTROL_STATE["breaker"] = {
+        "manual_state": state,
+        "last_reason": reason,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _log_control_event("breaker_" + state, actor, {"reason": reason})
+    return _CONTROL_STATE["breaker"]
 
 
 @dataclass(slots=True)
@@ -79,6 +165,7 @@ class SnapshotBundle:
     momentum: dict[str, float]
     micro_features: dict[str, Any]
     execution: dict[str, float]
+    trades: list[dict[str, Any]]
     fetch_latency_ms: float
 
 
@@ -146,6 +233,14 @@ async def _build_snapshot(adapter: CCXTAdapter, symbol: str) -> SnapshotBundle |
         LOGGER.debug("Adapter mandatory fetch failed for %s: %s", symbol, exc)
         return None
     fetch_latency_ms = (time.perf_counter() - fetch_started) * 1000
+
+    trades: list[dict[str, Any]] = []
+    try:
+        trades = await adapter.fetch_trades(symbol, limit=200)
+    except AdapterError as exc:  # pragma: no cover - depends on exchange
+        LOGGER.debug("Trades fetch failed for %s: %s", symbol, exc)
+    except Exception as exc:  # pragma: no cover - defensive
+        LOGGER.debug("Unexpected trades fetch failure for %s: %s", symbol, exc)
 
     funding = None
     open_interest = None
@@ -265,6 +360,7 @@ async def _build_snapshot(adapter: CCXTAdapter, symbol: str) -> SnapshotBundle |
             **micro_telemetry,
         },
         execution=execution_metrics,
+        trades=trades,
         fetch_latency_ms=fetch_latency_ms,
     )
     return bundle
@@ -359,11 +455,31 @@ async def loop(stop_event: asyncio.Event | None = None) -> None:
     signal_bus = get_signal_bus()
 
     while True:
+        await _PAUSE_EVENT.wait()
         started = time.perf_counter()
         bundles: list[SnapshotBundle] = []
         ranked: list[SymbolSnapshot] = []
         errors = 0
         adapter_state: dict[str, Any] | None = None
+
+        if _CONTROL_STATE.get("breaker", {}).get("manual_state") == "open":
+            _HEALTH_STATE.update(
+                {
+                    "last_error": _CONTROL_STATE.get("breaker", {}).get("last_reason")
+                    or "Manual circuit breaker open",
+                    "failure_streak": failure_streak,
+                    "cycle_count": _HEALTH_STATE.get("cycle_count", 0),
+                    "control": _snapshot_control_state(),
+                }
+            )
+            if stop_event and stop_event.is_set():
+                return
+            try:
+                await asyncio.wait_for(_FORCE_EVENT.wait(), timeout=settings.scan_interval_sec)
+                _FORCE_EVENT.clear()
+            except asyncio.TimeoutError:
+                pass
+            continue
         try:
             bundles, ranked, adapter_state = await run_cycle(profile)
             failure_streak = 0
@@ -379,6 +495,7 @@ async def loop(stop_event: asyncio.Event | None = None) -> None:
                 "failure_streak": failure_streak,
                 "backoff_sec": wait,
                 "cycle_count": _HEALTH_STATE.get("cycle_count", 0),
+                "control": _snapshot_control_state(),
             })
             await asyncio.sleep(wait)
             if stop_event and stop_event.is_set():
@@ -395,6 +512,7 @@ async def loop(stop_event: asyncio.Event | None = None) -> None:
                 "failure_streak": failure_streak,
                 "backoff_sec": wait,
                 "cycle_count": _HEALTH_STATE.get("cycle_count", 0),
+                "control": _snapshot_control_state(),
             })
             await asyncio.sleep(wait)
             if stop_event and stop_event.is_set():
@@ -419,6 +537,12 @@ async def loop(stop_event: asyncio.Event | None = None) -> None:
 
         duration = (time.perf_counter() - started) * 1000
         record_cycle(duration / 1000, len(bundles), len(ranked), errors)
+
+        history = _HEALTH_STATE.get("cycle_history_ms")
+        if isinstance(history, list):
+            history.append(duration)
+            if len(history) > 120:
+                del history[: len(history) - 120]
 
         market_gauge = sum(bundle.snapshot.atr_pct for bundle in bundles) / max(len(bundles), 1)
         volatility_bucket = "low"
@@ -522,6 +646,7 @@ async def loop(stop_event: asyncio.Event | None = None) -> None:
                 "cycle_count": _HEALTH_STATE.get("cycle_count", 0) + 1,
                 "backoff_sec": _HEALTH_STATE.get("backoff_sec", 0.0),
                 "adapter": adapter_state or _HEALTH_STATE.get("adapter"),
+                "control": _snapshot_control_state(),
                 "symbols": {
                     bundle.snapshot.symbol: {
                         "latency_ms": bundle.fetch_latency_ms,
@@ -534,9 +659,21 @@ async def loop(stop_event: asyncio.Event | None = None) -> None:
             }
         )
 
+        if not _PAUSE_EVENT.is_set():
+            continue
+
         if stop_event and stop_event.is_set():
             return
-        await asyncio.sleep(settings.scan_interval_sec)
+
+        elapsed_sec = duration / 1000.0
+        sleep_remaining = max(settings.scan_interval_sec - elapsed_sec, 0.0)
+        if sleep_remaining <= 0:
+            continue
+        try:
+            await asyncio.wait_for(_FORCE_EVENT.wait(), timeout=sleep_remaining)
+            _FORCE_EVENT.clear()
+        except asyncio.TimeoutError:
+            pass
 
 
 def get_latest_bundle(symbol: str) -> SnapshotBundle | None:
@@ -563,6 +700,11 @@ __all__ = [
     "get_health_state",
     "collect_snapshot",
     "get_spread_history",
+    "request_force_scan",
+    "pause_scanner",
+    "resume_scanner",
+    "set_manual_breaker",
+    "get_control_state",
 ]
 
 

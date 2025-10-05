@@ -10,6 +10,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from .config import get_settings
 from .jobs.loop import loop as scanner_loop
 from .routers import (
+    control,
     health,
     symbols,
     rankings,
@@ -29,6 +30,7 @@ app = FastAPI(title="Market Scanner")
 
 app.include_router(health.router)
 app.include_router(panel_router.router)
+app.include_router(control.router)
 app.include_router(symbols.router, prefix="/symbols", tags=["symbols"])
 app.include_router(rankings.router, prefix="/rankings", tags=["rankings"])
 app.include_router(opportunities.router, prefix="/opportunities", tags=["opportunities"])

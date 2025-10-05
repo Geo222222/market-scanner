@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+import logging
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field, condecimal
+from sqlalchemy.exc import IntegrityError
 
 from ..config import get_settings
 from ..core.scoring import set_profile_override, WEIGHT_PRESETS
@@ -8,6 +13,18 @@ from ..engine.runtime import set_manipulation_threshold, set_notional_override
 from ..stores import settings_store
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+DecimalNotional = condecimal(gt=0, max_digits=18, decimal_places=2)
+
+
+class SettingsPayload(BaseModel):
+    liquidity_weight: float = Field(..., ge=0, le=10)
+    momentum_weight: float = Field(..., ge=0, le=10)
+    spread_penalty: float = Field(..., ge=0, le=10)
+    manipulation_threshold: Optional[float] = Field(None, ge=0, le=100)
+    notional: Optional[DecimalNotional] = None
 
 
 @router.get("/settings")
@@ -29,24 +46,36 @@ async def fetch_settings():
 
 
 @router.post("/settings")
-async def update_settings(payload: dict[str, float]):
-    liquidity = float(payload.get("liquidity_weight", 0.0))
-    momentum = float(payload.get("momentum_weight", 0.0))
-    spread_penalty = float(payload.get("spread_penalty", 0.0))
-    manip_threshold = payload.get("manipulation_threshold")
-    notional = payload.get("notional")
+async def update_settings(payload: SettingsPayload):
+    liquidity = float(payload.liquidity_weight)
+    momentum = float(payload.momentum_weight)
+    spread_penalty = float(payload.spread_penalty)
+    manip_threshold = float(payload.manipulation_threshold) if payload.manipulation_threshold is not None else None
+    notional: Optional[float]
+    if payload.notional is not None:
+        notional = float(payload.notional)
+    else:
+        notional = None
 
     weights = {
         "liquidity": liquidity,
         "momentum": momentum,
         "spread": spread_penalty,
     }
-    await settings_store.upsert_user_profile(
-        name="default",
-        weights=weights,
-        manipulation_threshold=manip_threshold,
-        notional=notional,
-    )
+
+    try:
+        await settings_store.upsert_user_profile(
+            name="default",
+            weights=weights,
+            manipulation_threshold=manip_threshold,
+            notional=notional,
+        )
+    except IntegrityError as exc:  # pragma: no cover - defensive
+        logger.exception("Settings upsert failed due to conflict")
+        raise HTTPException(status_code=409, detail="Conflict on user profile (duplicate key)") from exc
+    except Exception as exc:  # pragma: no cover - unexpected
+        logger.exception("Settings update failed")
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     default_profile = get_settings().profile_default
     base = WEIGHT_PRESETS.get(default_profile, {})
@@ -61,4 +90,4 @@ async def update_settings(payload: dict[str, float]):
     set_manipulation_threshold(manip_threshold)
     set_notional_override(notional)
 
-    return {"status": "ok"}
+    return {"ok": True}
