@@ -7,7 +7,7 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
-from typing import AsyncContextManager, AsyncIterable, Awaitable, Callable, Dict, Iterable, Mapping, Optional
+from typing import Any, AsyncContextManager, AsyncIterable, Awaitable, Callable, Dict, Iterable, Mapping, Optional
 
 from websockets.client import WebSocketClientProtocol
 from websockets.exceptions import ConnectionClosed

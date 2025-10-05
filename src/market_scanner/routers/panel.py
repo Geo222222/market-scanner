@@ -127,8 +127,8 @@ PANEL_HTML = r"""
             <div class="grid grid-cols-12 items-center px-5 py-4 cursor-pointer hover:bg-slate-800/40 transition" @click="openSymbol(row.symbol)" :class="selectedSymbol===row.symbol ? 'bg-cyan-500/10 border-l border-cyan-400/50' : ''">
               <div class="col-span-2 font-semibold text-slate-100" x-text="row.symbol"></div>
               <div :class="scoreTone(row.score)" x-text="fmt(row.score)"></div>
-              <div class="text-slate-300" x-text="fmt(row.liq_edge || row.liq || row.liquidity)"></div>
-              <div :class="tone(row.mom_edge || row.momentum)" x-text="fmt(row.mom_edge || row.momentum)"></div>
+              <div class="text-slate-300" x-text="fmt(row.liquidity_edge)"></div>
+              <div :class="tone(row.momentum_edge)" x-text="fmt(row.momentum_edge)"></div>
               <div :class="row.atr_pct>1.5 ? 'text-amber-300' : 'text-slate-300'" x-text="fmt(row.atr_pct)"></div>
               <div :class="row.spread_bps>8 ? 'text-rose-300' : 'text-slate-300'" x-text="fmt(row.spread_bps)"></div>
               <div :class="row.slip_bps>5 ? 'text-rose-300' : 'text-slate-300'" x-text="fmt(row.slip_bps)"></div>
@@ -352,8 +352,29 @@ PANEL_HTML = r"""
           const res = await axios.get('/rankings?' + this.params().toString(), { timeout: 10000 });
           let items = res.data.items || res.data || [];
           if(!Array.isArray(items)) items = [];
-          if(this.quickFilters.liq){ items = items.filter((r) => Number(r.qvol_usdt || 0) >= 1000000); }
-          if(this.quickFilters.mom){ items = items.filter((r) => Number((r.mom_edge || r.momentum) || 0) > 0); }
+          const normalizeRow = (row) => {
+            const fallback = (...values) => {
+              for (const val of values) {
+                if (val !== undefined && val !== null) {
+                  return val;
+                }
+              }
+              return 0;
+            };
+            const liquidityEdge = fallback(row.liquidity_edge, row.liq_edge, row.liquidity, row.liq);
+            const momentumEdge = fallback(row.momentum_edge, row.mom_edge, row.momentum);
+            return { ...row, liquidity_edge: Number(liquidityEdge) || 0, momentum_edge: Number(momentumEdge) || 0 };
+          };
+          items = items.map(normalizeRow);
+          if(this.quickFilters.liq){
+            items = items.filter((r) => {
+              const value = r.liquidity_edge !== undefined && r.liquidity_edge !== null ? r.liquidity_edge : (r.qvol_usdt || 0);
+              return Number(value) > 0;
+            });
+          }
+          if(this.quickFilters.mom){
+            items = items.filter((r) => Number(r.momentum_edge || 0) > 0);
+          }
           this.rows = items;
           this.connected = true;
           this.lastUpdated = Date.now();
