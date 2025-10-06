@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, condecimal
 from sqlalchemy.exc import IntegrityError
 
@@ -11,8 +11,9 @@ from ..config import get_settings
 from ..core.scoring import set_profile_override, WEIGHT_PRESETS
 from ..engine.runtime import set_manipulation_threshold, set_notional_override
 from ..stores import settings_store
+from ..security import require_admin
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin)])
 logger = logging.getLogger(__name__)
 
 
@@ -79,15 +80,19 @@ async def update_settings(payload: SettingsPayload):
 
     default_profile = get_settings().profile_default
     base = WEIGHT_PRESETS.get(default_profile, {})
+    edges_base = base.get("edges", {})
+    cost_base = base.get("cost", {})
     override = {
         "edges": {
-            "liquidity": liquidity or base.get("edges", {}).get("liquidity", 0.0),
-            "momentum": momentum or base.get("edges", {}).get("momentum", 0.0),
+            "liquidity": liquidity if payload.liquidity_weight is not None else edges_base.get("liquidity", 0.0),
+            "momentum": momentum if payload.momentum_weight is not None else edges_base.get("momentum", 0.0),
         },
-        "cost": {"spread": spread_penalty or base.get("cost", {}).get("spread", 0.0)},
+        "cost": {"spread": spread_penalty if payload.spread_penalty is not None else cost_base.get("spread", 0.0)},
     }
     set_profile_override(default_profile, override)
     set_manipulation_threshold(manip_threshold)
     set_notional_override(notional)
 
     return {"ok": True}
+
+

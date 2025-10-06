@@ -11,6 +11,7 @@ from ..config import get_settings
 from ..core.metrics import SymbolSnapshot
 from ..core.scoring import REJECT_SCORE, score
 from ..stores.redis_store import get_latest_snapshots, get_rankings
+from ._helpers import format_flag_objects
 
 router = APIRouter()
 
@@ -27,6 +28,7 @@ class RankingQuery(BaseModel):
     include_basis: bool = True
     include_carry: bool = True
     max_manip_score: float | None = Field(default=None, ge=0, le=100)
+    min_manip_score: float | None = Field(default=None, ge=0, le=100)
     exclude_flags: List[str] = Field(default_factory=list)
 
 
@@ -39,7 +41,9 @@ class RankingItem(BaseModel):
     slip_bps: float
     top5_depth_usdt: float
     ret_15: float
+    ret15: float
     ret_1: float
+    ret1: float
     funding_8h_pct: float | None = None
     open_interest: float | None = None
     basis_bps: float | None = None
@@ -56,6 +60,7 @@ class RankingItem(BaseModel):
     anomaly_residual: float | None = None
     manip_score: float | None = None
     manip_flags: list[str] | None = None
+    flags: list[dict[str, bool]] = Field(default_factory=list)
 
 
 class RankingsResponse(BaseModel):
@@ -80,6 +85,7 @@ async def _query_params(
     include_basis: bool = Query(default=True),
     include_carry: bool = Query(default=True),
     max_manip_score: float | None = Query(default=None, ge=0, le=100),
+    min_manip: float | None = Query(default=None, ge=0, le=100),
     exclude_flags: Optional[list[str]] = Query(default=None),
 ) -> RankingQuery:
     base = RankingQuery()
@@ -100,6 +106,8 @@ async def _query_params(
     base.include_carry = include_carry
     if max_manip_score is not None:
         base.max_manip_score = max_manip_score
+    if min_manip is not None:
+        base.min_manip_score = min_manip
     if exclude_flags:
         base.exclude_flags = sorted({flag for flag in exclude_flags if flag})
     return base
@@ -189,6 +197,11 @@ async def compute_rankings(params: RankingQuery) -> tuple[list[SymbolSnapshot], 
             if any(flag in params.exclude_flags for flag in snapshot.manip_flags):
                 continue
         if (
+            params.min_manip_score is not None
+            and (snapshot.manip_score is None or snapshot.manip_score < params.min_manip_score)
+        ):
+            continue
+        if (
             params.max_manip_score is not None
             and snapshot.manip_score is not None
             and snapshot.manip_score > params.max_manip_score
@@ -226,7 +239,9 @@ async def get_rankings_endpoint(params: RankingQuery = Depends(_query_params)) -
             slip_bps=snap.slip_bps,
             top5_depth_usdt=snap.top5_depth_usdt,
             ret_15=snap.ret_15,
+            ret15=snap.ret_15,
             ret_1=snap.ret_1,
+            ret1=snap.ret_1,
             funding_8h_pct=snap.funding_8h_pct,
             open_interest=snap.open_interest,
             basis_bps=snap.basis_bps,
@@ -243,6 +258,7 @@ async def get_rankings_endpoint(params: RankingQuery = Depends(_query_params)) -
             anomaly_residual=snap.anomaly_residual,
             manip_score=snap.manip_score,
             manip_flags=snap.manip_flags,
+            flags=format_flag_objects(snap.manip_flags),
         )
         for snap in paged
     ]
@@ -254,6 +270,7 @@ async def get_rankings_endpoint(params: RankingQuery = Depends(_query_params)) -
         "include_basis": params.include_basis,
         "include_carry": params.include_carry,
         "max_manip_score": params.max_manip_score,
+        "min_manip_score": params.min_manip_score,
         "exclude_flags": params.exclude_flags,
     }
     return RankingsResponse(
@@ -265,3 +282,14 @@ async def get_rankings_endpoint(params: RankingQuery = Depends(_query_params)) -
         page_size=params.page_size,
         total=total,
     )
+
+
+
+
+
+
+
+
+
+
+

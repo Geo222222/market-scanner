@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..stores import settings_store
+from ..security import require_admin
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin)])
 
 
 class WatchlistCreatePayload(BaseModel):
@@ -74,3 +75,4 @@ async def reorder_watchlist(name: str, payload: WatchlistSymbolsPayload):
     if watchlist is None:
         raise HTTPException(status_code=404, detail="Watchlist not found")
     return watchlist
+

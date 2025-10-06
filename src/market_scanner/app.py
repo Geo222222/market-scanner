@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import Response
+from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from .config import get_settings
@@ -28,6 +30,10 @@ settings = get_settings()
 
 app = FastAPI(title="Market Scanner")
 
+static_dir = Path(__file__).resolve().parent / "static"
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
 app.include_router(health.router)
 app.include_router(panel_router.router)
 app.include_router(control.router)
@@ -48,4 +54,8 @@ if settings.metrics_enabled:
     @app.get("/metrics", include_in_schema=False)
     async def metrics_endpoint() -> Response:
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+
+
 

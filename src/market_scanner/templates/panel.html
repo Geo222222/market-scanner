@@ -295,6 +295,7 @@
         <input type="number" id="input-notional" min="1000" step="100" />
       </label>
       <button class="primary" id="save-settings">Save Settings</button>
+      <button class="secondary" id="set-admin-token">Set Admin Token</button>
 
       <h2>Watchlists</h2>
       <div class="watchlists" id="watchlists"></div>
@@ -385,6 +386,42 @@
     </div>
 
     <script>
+      const ADMIN_TOKEN_KEY = 'scanner_admin_token';
+
+      function getAdminToken() {
+        return localStorage.getItem(ADMIN_TOKEN_KEY) || '';
+      }
+
+      function setAdminToken(token) {
+        const value = token ? token.trim() : '';
+        if (value) {
+          localStorage.setItem(ADMIN_TOKEN_KEY, value);
+        } else {
+          localStorage.removeItem(ADMIN_TOKEN_KEY);
+        }
+      }
+
+      function adminHeaders(base = {}) {
+        const headers = { ...base };
+        const token = getAdminToken();
+        if (token) headers['X-Admin-Token'] = token;
+        return headers;
+      }
+
+      async function adminFetch(url, options = {}, allowRetry = true) {
+        const opts = { ...options };
+        opts.headers = adminHeaders(options.headers || {});
+        const response = await adminFetch(url, opts);
+        if (response.status === 401 && allowRetry) {
+          const next = window.prompt('Admin token required', getAdminToken());
+          if (next && next.trim()) {
+            setAdminToken(next.trim());
+            return adminFetch(url, options, false);
+          }
+        }
+        return response;
+      }
+
       const state = {
         items: [],
         filterSymbols: null,
@@ -541,7 +578,7 @@
 
       async function pollHealth() {
         try {
-          const response = await fetch('/healthz/details');
+          const response = await adminFetch('/healthz/details');
           if (!response.ok) throw new Error('health fetch failed');
           const payload = await response.json();
           state.health = payload;
@@ -576,7 +613,7 @@
 
       async function fetchInspect(symbol) {
         try {
-          const response = await fetch(`/symbol/${encodeURIComponent(symbol)}/inspect`);
+          const response = await adminFetch(`/symbol/${encodeURIComponent(symbol)}/inspect`);
           if (!response.ok) throw new Error(await response.text());
           const payload = await response.json();
           drawerOrderbook.innerHTML = renderOrderBook(payload.orderbook || {});
@@ -648,6 +685,12 @@
         });
       });
 
+      document.getElementById('set-admin-token').addEventListener('click', () => {
+        const next = window.prompt('Set admin API token', getAdminToken());
+        if (next === null) return;
+        setAdminToken(next);
+      });
+
       document.getElementById('save-settings').addEventListener('click', async () => {
         const payload = {
           liquidity_weight: Number(document.getElementById('weight-liq').value),
@@ -656,7 +699,7 @@
           manipulation_threshold: Number(document.getElementById('threshold-manip').value),
           notional: Number(document.getElementById('input-notional').value),
         };
-        await fetch('/settings', {
+        await adminFetch('/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -667,7 +710,7 @@
 
       async function loadSettings() {
         try {
-          const response = await fetch('/settings');
+          const response = await adminFetch('/settings');
           if (!response.ok) throw new Error('Failed to load settings');
           const payload = await response.json();
           document.getElementById('weight-liq').value = payload.weights?.liquidity ?? 0;
@@ -704,7 +747,7 @@
       document.getElementById('create-watchlist').addEventListener('click', async () => {
         const name = document.getElementById('new-watchlist-name').value.trim();
         if (!name) return;
-        await fetch('/watchlists', {
+        await adminFetch('/watchlists', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name }),
@@ -739,7 +782,7 @@
           return;
         }
         try {
-          const response = await fetch(`/symbol/${encodeURIComponent(query)}/inspect?mode=card`);
+          const response = await adminFetch(`/symbol/${encodeURIComponent(query)}/inspect?mode=card`);
           if (!response.ok) return;
           const payload = await response.json();
           spotlightResults.innerHTML = `<div data-symbol="${payload.symbol}">${payload.symbol} - score ${payload.score?.toFixed?.(2) ?? 'n/a'}</div>`;
@@ -781,4 +824,12 @@
     </script>
   </body>
 </html>
+
+
+
+
+
+
+
+
 

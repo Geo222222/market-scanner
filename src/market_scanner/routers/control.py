@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..jobs.loop import (
@@ -10,8 +10,9 @@ from ..jobs.loop import (
     resume_scanner,
     set_manual_breaker,
 )
+from ..security import require_admin
 
-router = APIRouter(prefix="/control", tags=["control"])
+router = APIRouter(prefix="/control", tags=["control"], dependencies=[Depends(require_admin)])
 
 
 class ControlPayload(BaseModel):
@@ -52,3 +53,4 @@ async def breaker(payload: BreakerPayload) -> dict[str, object]:
         return set_manual_breaker(payload.state, actor=payload.actor or "api", reason=payload.reason)
     except ValueError as exc:  # pragma: no cover - validation guard
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+

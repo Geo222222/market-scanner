@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     topn_default: int = Field(default=12, description="Default number of symbols returned by ranking endpoints.")
     profile_default: str = Field(default="scalp", description="Fallback scoring profile for rankings.")
     include_carry: bool = Field(default=True, description="Whether to include carry inputs (funding/basis) in scoring.")
+    admin_api_token: str | None = Field(default=None, description="Shared secret required to access administrative APIs.")
 
     scan_interval_sec: int = Field(default=15, validation_alias=AliasChoices("scan_interval_sec", "scan_interval_s"))
     scan_sla_warn_multiplier: float = Field(default=2.0, description="Multiplier of target cycle time before warning level.")
@@ -104,3 +105,4 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+

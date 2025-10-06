@@ -17,11 +17,11 @@ PANEL_HTML = r"""
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Market Scanner - Command Center</title>
-  <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/axios@1.6.8/dist/axios.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="/static/vendor/alpinejs.min.js" defer></script>
+  <script src="/static/vendor/axios.min.js"></script>
+  <script src="/static/vendor/tailwind.min.js"></script>
+  
+  
   <style>
     :root { --bg:#050816; --surface:#0c1224; --tray:#0f172a; --ink:#cbd5e1; --muted:#64748b; --accent:#22d3ee; --danger:#f87171; --success:#34d399; --warn:#facc15; }
     html,body{height:100%; background:var(--bg); color:var(--ink); font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;}
@@ -426,3 +426,4 @@ PANEL_HTML = r"""
 </body>
 </html>
 """
+
