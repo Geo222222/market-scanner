@@ -3,9 +3,9 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "market-scanner"
-version = "0.1.0"
-description = "Portfolio-grade Market Scanner microservice (FastAPI + async scanning)"
+name = "nexus-alpha"
+version = "1.0.0"
+description = "Nexus Alpha - The Intelligent Trading Ecosystem"
 requires-python = ">=3.10"
 readme = "README.md"
 

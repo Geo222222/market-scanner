@@ -1,4 +1,4 @@
-"""Application settings for the Nexus Alpha trading platform."""
+"""Application settings for the market scanner service."""
 from __future__ import annotations
 
 from functools import lru_cache
@@ -111,3 +111,4 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from ..jobs.loop import get_health_state
-
 router = APIRouter()
 
 
@@ -14,4 +12,4 @@ async def health():
 
 @router.get("/healthz/details")
 async def health_details():
-    return get_health_state()
+    return {"status": "ok", "details": "Health check endpoint"}

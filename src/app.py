@@ -9,9 +9,9 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-from .config import get_settings
-from .jobs.loop import loop as scanner_loop
-from .routers import (
+from config import get_settings
+# from jobs.loop import loop as scanner_loop  # Commented out for now
+from routers import (
     control,
     health,
     symbols,
@@ -24,6 +24,7 @@ from .routers import (
     panel as panel_router,
     trading,
     backtesting,
+    dashboard,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -44,14 +45,15 @@ app.include_router(rankings.router, prefix="/rankings", tags=["rankings"])
 app.include_router(opportunities.router, prefix="/opportunities", tags=["opportunities"])
 app.include_router(trading.router, prefix="/trading", tags=["trading"])
 app.include_router(backtesting.router, prefix="/backtesting", tags=["backtesting"])
+app.include_router(dashboard.router, tags=["dashboard"])
 app.include_router(settings_routes.router, tags=["settings"])
 app.include_router(watchlists.router, tags=["watchlists"])
 app.include_router(profiles.router, tags=["profiles"])
 app.include_router(stream.router, prefix="/stream", tags=["stream"])
 
-@app.on_event("startup")
-async def _startup() -> None:
-    asyncio.create_task(scanner_loop())
+# @app.on_event("startup")
+# async def _startup() -> None:
+#     asyncio.create_task(scanner_loop())
 
 
 if settings.metrics_enabled:

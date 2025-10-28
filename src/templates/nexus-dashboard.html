@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en" x-data="nexusDashboard()" x-init="init()">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Alpha - Signal Intelligence Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --nexus-primary: #10B981;
+            --nexus-secondary: #3B82F6;
+            --nexus-accent: #8B5CF6;
+            --nexus-dark: #0F172A;
+            --nexus-darker: #020617;
+            --nexus-surface: #1E293B;
+            --nexus-text: #F1F5F9;
+            --nexus-muted: #64748B;
+        }
+        
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, var(--nexus-darker) 0%, var(--nexus-dark) 100%);
+            color: var(--nexus-text);
+        }
+        
+        .nexus-card {
+            background: rgba(30, 41, 59, 0.6);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        
+        .nexus-gradient {
+            background: linear-gradient(135deg, var(--nexus-primary) 0%, var(--nexus-secondary) 100%);
+        }
+        
+        .nexus-glow {
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+        }
+        
+        .signal-positive { color: #10B981; }
+        .signal-negative { color: #EF4444; }
+        .signal-neutral { color: #F59E0B; }
+        
+        .pulse-animation {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .slide-in {
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from { transform: translateY(-10px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        .status-indicator {
+            position: relative;
+        }
+        
+        .status-indicator::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: -8px;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            transform: translateY(-50%);
+        }
+        
+        .status-live::before { background: #10B981; animation: pulse 2s infinite; }
+        .status-error::before { background: #EF4444; }
+        .status-warning::before { background: #F59E0B; }
+    </style>
+</head>
+<body class="min-h-screen">
+    <!-- Header -->
+    <header class="nexus-card mx-6 mt-6 mb-4">
+        <div class="px-8 py-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <div class="w-12 h-12 nexus-gradient rounded-xl flex items-center justify-center text-white font-bold text-xl">
+                        N
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold">Nexus Alpha</h1>
+                        <p class="text-sm text-gray-400">Signal Intelligence Dashboard</p>
+                    </div>
+                </div>
+                
+                <div class="flex items-center space-x-4">
+                    <div class="status-indicator" :class="connectionStatus">
+                        <span class="text-sm font-medium" x-text="connectionText"></span>
+                    </div>
+                    <div class="text-sm text-gray-400">
+                        Last Update: <span x-text="lastUpdate"></span>
+                    </div>
+                    <button @click="refreshData()" 
+                            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">
+                        Refresh
+                    </button>
+                    <button @click="showSettings = true" 
+                            class="px-4 py-2 border border-gray-600 hover:border-gray-500 rounded-lg transition-colors">
+                        Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Dashboard -->
+    <div class="px-6 pb-6">
+        <!-- Signal Overview Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="nexus-card p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400 uppercase tracking-wide">Active Signals</p>
+                        <p class="text-3xl font-bold text-green-400" x-text="stats.activeSignals"></p>
+                    </div>
+                    <div class="w-12 h-12 bg-green-500/20 rounded-lg flex items-center justify-center">
+                        <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="nexus-card p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400 uppercase tracking-wide">High Confidence</p>
+                        <p class="text-3xl font-bold text-blue-400" x-text="stats.highConfidence"></p>
+                    </div>
+                    <div class="w-12 h-12 bg-blue-500/20 rounded-lg flex items-center justify-center">
+                        <svg class="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="nexus-card p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400 uppercase tracking-wide">Markets Scanned</p>
+                        <p class="text-3xl font-bold text-purple-400" x-text="stats.marketsScanned"></p>
+                    </div>
+                    <div class="w-12 h-12 bg-purple-500/20 rounded-lg flex items-center justify-center">
+                        <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="nexus-card p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-400 uppercase tracking-wide">Avg Score</p>
+                        <p class="text-3xl font-bold text-yellow-400" x-text="stats.avgScore"></p>
+                    </div>
+                    <div class="w-12 h-12 bg-yellow-500/20 rounded-lg flex items-center justify-center">
+                        <svg class="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Signal Rankings Table -->
+            <div class="lg:col-span-2 nexus-card">
+                <div class="px-6 py-4 border-b border-gray-700">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-xl font-semibold">Live Signal Rankings</h2>
+                        <div class="flex space-x-2">
+                            <button @click="filterSignals('all')" 
+                                    :class="activeFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'"
+                                    class="px-3 py-1 rounded-lg text-sm transition-colors">
+                                All
+                            </button>
+                            <button @click="filterSignals('high')" 
+                                    :class="activeFilter === 'high' ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300'"
+                                    class="px-3 py-1 rounded-lg text-sm transition-colors">
+                                High Confidence
+                            </button>
+                            <button @click="filterSignals('long')" 
+                                    :class="activeFilter === 'long' ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-300'"
+                                    class="px-3 py-1 rounded-lg text-sm transition-colors">
+                                Long Bias
+                            </button>
+                            <button @click="filterSignals('short')" 
+                                    :class="activeFilter === 'short' ? 'bg-red-600 text-white' : 'bg-gray-700 text-gray-300'"
+                                    class="px-3 py-1 rounded-lg text-sm transition-colors">
+                                Short Bias
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="bg-gray-800/50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Rank</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Symbol</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Score</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Bias</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Confidence</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Liquidity</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Momentum</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Spread</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Flags</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-700">
+                            <template x-for="(signal, index) in filteredSignals" :key="signal.symbol">
+                                <tr class="hover:bg-gray-800/50 transition-colors cursor-pointer" 
+                                    @click="selectSignal(signal)"
+                                    :class="selectedSignal?.symbol === signal.symbol ? 'bg-blue-900/30' : ''">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-300" x-text="index + 1"></td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="text-sm font-medium text-white" x-text="signal.symbol"></div>
+                                        <div class="text-sm text-gray-400" x-text="signal.exchange || 'HTX'"></div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="text-sm font-semibold" 
+                                              :class="getScoreColor(signal.score)" 
+                                              x-text="formatNumber(signal.score)"></span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="px-2 py-1 rounded-full text-xs font-medium"
+                                              :class="getBiasColor(signal.bias)"
+                                              x-text="signal.bias || 'Neutral'"></span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="flex items-center">
+                                            <div class="w-16 bg-gray-700 rounded-full h-2 mr-2">
+                                                <div class="bg-blue-600 h-2 rounded-full" 
+                                                     :style="`width: ${signal.confidence || 0}%`"></div>
+                                            </div>
+                                            <span class="text-sm text-gray-300" x-text="`${signal.confidence || 0}%`"></span>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-300" x-text="formatNumber(signal.liquidity_edge)"></td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm" 
+                                        :class="getMomentumColor(signal.momentum_edge)" 
+                                        x-text="formatNumber(signal.momentum_edge)"></td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm" 
+                                        :class="getSpreadColor(signal.spread_bps)" 
+                                        x-text="`${signal.spread_bps || 0} bps`"></td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="flex space-x-1">
+                                            <template x-for="flag in (signal.flags || [])" :key="flag.name">
+                                                <span class="px-2 py-1 rounded text-xs"
+                                                      :class="flag.active ? 'bg-red-500/20 text-red-400' : 'bg-gray-600/20 text-gray-400'"
+                                                      x-text="flag.name"></span>
+                                            </template>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Signal Details Panel -->
+            <div class="nexus-card">
+                <div class="px-6 py-4 border-b border-gray-700">
+                    <h3 class="text-lg font-semibold">Signal Analysis</h3>
+                </div>
+                
+                <div class="p-6">
+                    <template x-if="selectedSignal">
+                        <div class="space-y-6">
+                            <!-- Signal Overview -->
+                            <div>
+                                <h4 class="text-sm font-medium text-gray-400 mb-3">Signal Overview</h4>
+                                <div class="space-y-3">
+                                    <div class="flex justify-between">
+                                        <span class="text-sm text-gray-400">Symbol</span>
+                                        <span class="text-sm font-medium" x-text="selectedSignal.symbol"></span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-sm text-gray-400">Score</span>
+                                        <span class="text-sm font-semibold" 
+                                              :class="getScoreColor(selectedSignal.score)" 
+                                              x-text="formatNumber(selectedSignal.score)"></span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-sm text-gray-400">Bias</span>
+                                        <span class="px-2 py-1 rounded-full text-xs font-medium"
+                                              :class="getBiasColor(selectedSignal.bias)"
+                                              x-text="selectedSignal.bias || 'Neutral'"></span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-sm text-gray-400">Confidence</span>
+                                        <span class="text-sm font-medium" x-text="`${selectedSignal.confidence || 0}%`"></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Risk Metrics -->
+                            <div>
+                                <h4 class="text-sm font-medium text-gray-400 mb-3">Risk Metrics</h4>
+                                <div class="space-y-3">
+                                    <div class="flex justify-between">
+                                        <span class="text-sm text-gray-400">Spread</span>
+                                        <span class="text-sm" 
+                                              :class="getSpreadColor(selectedSignal.spread_bps)" 
+                                              x-text="`${selectedSignal.spread_bps || 0} bps`"></span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-sm text-gray-400">Slippage</span>
+                                        <span class="text-sm" 
+                                              :class="getSlippageColor(selectedSignal.slip_bps)" 
+                                              x-text="`${selectedSignal.slip_bps || 0} bps`"></span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-sm text-gray-400">Manipulation</span>
+                                        <span class="text-sm" 
+                                              :class="getManipulationColor(selectedSignal.manipulation_score)" 
+                                              x-text="`${selectedSignal.manipulation_score || 0}%`"></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Market Data -->
+                            <div>
+                                <h4 class="text-sm font-medium text-gray-400 mb-3">Market Data</h4>
+                                <div class="space-y-3">
+                                    <div class="flex justify-between">
+                                        <span class="text-sm text-gray-400">Volume (24h)</span>
+                                        <span class="text-sm font-medium" x-text="formatVolume(selectedSignal.qvol_usdt)"></span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-sm text-gray-400">ATR %</span>
+                                        <span class="text-sm font-medium" x-text="`${selectedSignal.atr_pct || 0}%`"></span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-sm text-gray-400">Price</span>
+                                        <span class="text-sm font-medium" x-text="`$${selectedSignal.price || 0}`"></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Action Buttons -->
+                            <div class="space-y-2">
+                                <button @click="createAlert(selectedSignal)" 
+                                        class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors">
+                                    Create Alert
+                                </button>
+                                <button @click="viewDetails(selectedSignal)" 
+                                        class="w-full px-4 py-2 border border-gray-600 hover:border-gray-500 rounded-lg text-sm font-medium transition-colors">
+                                    View Details
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                    
+                    <template x-if="!selectedSignal">
+                        <div class="text-center py-8">
+                            <div class="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                                </svg>
+                            </div>
+                            <p class="text-gray-400">Select a signal to view analysis</p>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div x-show="showSettings" 
+         x-transition:enter="transition ease-out duration-300"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-200"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div class="nexus-card w-full max-w-md mx-4"
+             x-transition:enter="transition ease-out duration-300"
+             x-transition:enter-start="opacity-0 scale-95"
+             x-transition:enter-end="opacity-100 scale-100"
+             x-transition:leave="transition ease-in duration-200"
+             x-transition:leave-start="opacity-100 scale-100"
+             x-transition:leave-end="opacity-0 scale-95">
+            <div class="px-6 py-4 border-b border-gray-700">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-lg font-semibold">Settings</h3>
+                    <button @click="showSettings = false" class="text-gray-400 hover:text-white">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="p-6 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-2">Trading Profile</label>
+                    <select x-model="settings.profile" 
+                            class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white">
+                        <option value="scalp">Scalping</option>
+                        <option value="swing">Swing Trading</option>
+                        <option value="news">News Trading</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-2">Min Confidence (%)</label>
+                    <input type="range" x-model="settings.minConfidence" min="0" max="100" 
+                           class="w-full">
+                    <div class="flex justify-between text-sm text-gray-400">
+                        <span>0%</span>
+                        <span x-text="settings.minConfidence + '%'"></span>
+                        <span>100%</span>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-2">Max Spread (bps)</label>
+                    <input type="range" x-model="settings.maxSpread" min="1" max="50" 
+                           class="w-full">
+                    <div class="flex justify-between text-sm text-gray-400">
+                        <span>1 bps</span>
+                        <span x-text="settings.maxSpread + ' bps'"></span>
+                        <span>50 bps</span>
+                    </div>
+                </div>
+                
+                <div class="flex space-x-3">
+                    <button @click="saveSettings(); refreshData(); showSettings = false" 
+                            class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors">
+                        Save & Apply
+                    </button>
+                    <button @click="showSettings = false" 
+                            class="flex-1 px-4 py-2 border border-gray-600 hover:border-gray-500 rounded-lg text-sm font-medium transition-colors">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function nexusDashboard() {
+            return {
+                // State
+                signals: [],
+                filteredSignals: [],
+                selectedSignal: null,
+                connectionStatus: 'status-live',
+                connectionText: 'Connected',
+                lastUpdate: 'Never',
+                showSettings: false,
+                activeFilter: 'all',
+                
+                // Settings
+                settings: {
+                    profile: 'scalp',
+                    minConfidence: 70,
+                    maxSpread: 8
+                },
+                
+                // Stats
+                stats: {
+                    activeSignals: 0,
+                    highConfidence: 0,
+                    marketsScanned: 0,
+                    avgScore: 0
+                },
+                
+                init() {
+                    this.loadSettings();
+                    this.refreshData();
+                    this.startAutoRefresh();
+                },
+                
+                loadSettings() {
+                    const saved = localStorage.getItem('nexus_settings');
+                    if (saved) {
+                        this.settings = { ...this.settings, ...JSON.parse(saved) };
+                    }
+                },
+                
+                saveSettings() {
+                    localStorage.setItem('nexus_settings', JSON.stringify(this.settings));
+                },
+                
+                async refreshData() {
+                    try {
+                        const response = await fetch('/rankings?profile=' + this.settings.profile + '&top=50');
+                        const data = await response.json();
+                        
+                        this.signals = data.items || data || [];
+                        this.filteredSignals = this.signals;
+                        this.updateStats();
+                        this.updateConnectionStatus('live');
+                        this.lastUpdate = new Date().toLocaleTimeString();
+                        
+                    } catch (error) {
+                        console.error('Failed to fetch signals:', error);
+                        this.updateConnectionStatus('error');
+                    }
+                },
+                
+                updateConnectionStatus(status) {
+                    this.connectionStatus = `status-${status}`;
+                    this.connectionText = status === 'live' ? 'Connected' : 
+                                        status === 'error' ? 'Error' : 'Warning';
+                },
+                
+                updateStats() {
+                    this.stats.activeSignals = this.signals.length;
+                    this.stats.highConfidence = this.signals.filter(s => (s.confidence || 0) >= 80).length;
+                    this.stats.marketsScanned = this.signals.length;
+                    this.stats.avgScore = this.signals.length > 0 ? 
+                        (this.signals.reduce((sum, s) => sum + (s.score || 0), 0) / this.signals.length).toFixed(1) : 0;
+                },
+                
+                filterSignals(filter) {
+                    this.activeFilter = filter;
+                    
+                    switch (filter) {
+                        case 'high':
+                            this.filteredSignals = this.signals.filter(s => (s.confidence || 0) >= 80);
+                            break;
+                        case 'long':
+                            this.filteredSignals = this.signals.filter(s => s.bias === 'Long');
+                            break;
+                        case 'short':
+                            this.filteredSignals = this.signals.filter(s => s.bias === 'Short');
+                            break;
+                        default:
+                            this.filteredSignals = this.signals;
+                    }
+                },
+                
+                selectSignal(signal) {
+                    this.selectedSignal = signal;
+                },
+                
+                createAlert(signal) {
+                    // TODO: Implement alert creation
+                    alert(`Creating alert for ${signal.symbol}`);
+                },
+                
+                viewDetails(signal) {
+                    // TODO: Implement detailed view
+                    alert(`Viewing details for ${signal.symbol}`);
+                },
+                
+                startAutoRefresh() {
+                    setInterval(() => {
+                        this.refreshData();
+                    }, 15000); // Refresh every 15 seconds
+                },
+                
+                // Utility functions
+                formatNumber(value) {
+                    if (value === null || value === undefined) return '-';
+                    return Number(value).toFixed(2);
+                },
+                
+                formatVolume(value) {
+                    if (!value) return '-';
+                    const num = Number(value);
+                    if (num >= 1e9) return (num / 1e9).toFixed(1) + 'B';
+                    if (num >= 1e6) return (num / 1e6).toFixed(1) + 'M';
+                    if (num >= 1e3) return (num / 1e3).toFixed(1) + 'K';
+                    return num.toLocaleString();
+                },
+                
+                getScoreColor(score) {
+                    const num = Number(score || 0);
+                    if (num > 50) return 'text-green-400';
+                    if (num > 20) return 'text-yellow-400';
+                    if (num > 0) return 'text-blue-400';
+                    return 'text-red-400';
+                },
+                
+                getBiasColor(bias) {
+                    switch (bias) {
+                        case 'Long': return 'bg-green-500/20 text-green-400 border border-green-500/30';
+                        case 'Short': return 'bg-red-500/20 text-red-400 border border-red-500/30';
+                        default: return 'bg-gray-500/20 text-gray-400 border border-gray-500/30';
+                    }
+                },
+                
+                getMomentumColor(value) {
+                    const num = Number(value || 0);
+                    if (num > 0) return 'text-green-400';
+                    if (num < 0) return 'text-red-400';
+                    return 'text-gray-400';
+                },
+                
+                getSpreadColor(value) {
+                    const num = Number(value || 0);
+                    if (num > 10) return 'text-red-400';
+                    if (num > 5) return 'text-yellow-400';
+                    return 'text-green-400';
+                },
+                
+                getSlippageColor(value) {
+                    const num = Number(value || 0);
+                    if (num > 5) return 'text-red-400';
+                    if (num > 2) return 'text-yellow-400';
+                    return 'text-green-400';
+                },
+                
+                getManipulationColor(value) {
+                    const num = Number(value || 0);
+                    if (num > 70) return 'text-red-400';
+                    if (num > 40) return 'text-yellow-400';
+                    return 'text-green-400';
+                }
+            }
+        }
+    </script>
+</body>
+</html>

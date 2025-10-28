@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Dashboard - Nexus Alpha</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+    <div x-data="tradingDashboard()" class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold text-green-400">Nexus Alpha Trading Dashboard</h1>
+            <div class="flex space-x-4">
+                <button @click="startEngine()" 
+                        :disabled="engineStatus.running"
+                        class="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 rounded">
+                    Start Engine
+                </button>
+                <button @click="stopEngine()" 
+                        :disabled="!engineStatus.running"
+                        class="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 rounded">
+                    Stop Engine
+                </button>
+                <button @click="refreshData()" 
+                        class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded">
+                    Refresh
+                </button>
+            </div>
+        </div>
+
+        <!-- Status Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="bg-gray-800 p-6 rounded-lg">
+                <h3 class="text-lg font-semibold text-gray-300">Balance</h3>
+                <p class="text-2xl font-bold text-green-400">$<span x-text="portfolio.balance?.toFixed(2) || '0.00'"></span></p>
+            </div>
+            <div class="bg-gray-800 p-6 rounded-lg">
+                <h3 class="text-lg font-semibold text-gray-300">Total P&L</h3>
+                <p class="text-2xl font-bold" :class="portfolio.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'">
+                    $<span x-text="portfolio.total_pnl?.toFixed(2) || '0.00'"></span>
+                </p>
+            </div>
+            <div class="bg-gray-800 p-6 rounded-lg">
+                <h3 class="text-lg font-semibold text-gray-300">Positions</h3>
+                <p class="text-2xl font-bold text-blue-400" x-text="portfolio.positions?.length || 0"></p>
+            </div>
+            <div class="bg-gray-800 p-6 rounded-lg">
+                <h3 class="text-lg font-semibold text-gray-300">Open Orders</h3>
+                <p class="text-2xl font-bold text-yellow-400" x-text="portfolio.open_orders || 0"></p>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- Positions -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-xl font-bold mb-4">Current Positions</h2>
+                <div x-show="portfolio.positions?.length === 0" class="text-gray-400 text-center py-8">
+                    No open positions
+                </div>
+                <div x-show="portfolio.positions?.length > 0" class="space-y-4">
+                    <template x-for="position in portfolio.positions || []" :key="position.symbol">
+                        <div class="bg-gray-700 p-4 rounded-lg">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <h3 class="font-semibold" x-text="position.symbol"></h3>
+                                    <p class="text-sm text-gray-400" x-text="position.side + ' ' + position.size"></p>
+                                </div>
+                                <div class="text-right">
+                                    <p class="text-sm text-gray-400">Entry: $<span x-text="position.entry_price?.toFixed(4)"></span></p>
+                                    <p class="text-sm text-gray-400">Current: $<span x-text="position.current_price?.toFixed(4)"></span></p>
+                                    <p class="font-semibold" :class="position.unrealized_pnl >= 0 ? 'text-green-400' : 'text-red-400'">
+                                        P&L: $<span x-text="position.unrealized_pnl?.toFixed(2)"></span>
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Recent Orders -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-xl font-bold mb-4">Recent Orders</h2>
+                <div x-show="orders.length === 0" class="text-gray-400 text-center py-8">
+                    No recent orders
+                </div>
+                <div x-show="orders.length > 0" class="space-y-2">
+                    <template x-for="order in orders.slice(0, 10)" :key="order.id">
+                        <div class="bg-gray-700 p-3 rounded">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <span class="font-semibold" x-text="order.symbol"></span>
+                                    <span class="text-sm text-gray-400 ml-2" x-text="order.side + ' ' + order.amount"></span>
+                                </div>
+                                <div class="text-right">
+                                    <span class="text-sm px-2 py-1 rounded" 
+                                          :class="{
+                                              'bg-green-600': order.status === 'filled',
+                                              'bg-yellow-600': order.status === 'open',
+                                              'bg-red-600': order.status === 'rejected'
+                                          }"
+                                          x-text="order.status"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- Backtesting Section -->
+        <div class="mt-8 bg-gray-800 rounded-lg p-6">
+            <h2 class="text-xl font-bold mb-4">Strategy Backtesting</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Test Period (days)</label>
+                    <select x-model="backtestDays" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                        <option value="7">7 days</option>
+                        <option value="14">14 days</option>
+                        <option value="30">30 days</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Min Confidence</label>
+                    <input x-model="minConfidence" type="number" min="0" max="100" 
+                           class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2">
+                </div>
+                <div class="flex items-end">
+                    <button @click="runBacktest()" 
+                            :disabled="backtesting"
+                            class="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 rounded">
+                        <span x-show="!backtesting">Run Backtest</span>
+                        <span x-show="backtesting">Running...</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div x-show="backtestResults" class="bg-gray-700 p-4 rounded">
+                <h3 class="font-semibold mb-2">Backtest Results</h3>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                        <span class="text-gray-400">Total Trades:</span>
+                        <span x-text="backtestResults.stats?.total_trades"></span>
+                    </div>
+                    <div>
+                        <span class="text-gray-400">Win Rate:</span>
+                        <span x-text="backtestResults.stats?.win_rate + '%'"></span>
+                    </div>
+                    <div>
+                        <span class="text-gray-400">Total P&L:</span>
+                        <span x-text="'$' + backtestResults.stats?.total_pnl?.toFixed(2)"></span>
+                    </div>
+                    <div>
+                        <span class="text-gray-400">Profit Factor:</span>
+                        <span x-text="backtestResults.stats?.profit_factor?.toFixed(2)"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function tradingDashboard() {
+            return {
+                portfolio: {},
+                orders: [],
+                engineStatus: { running: false },
+                backtestDays: 7,
+                minConfidence: 70,
+                backtesting: false,
+                backtestResults: null,
+
+                async init() {
+                    await this.refreshData();
+                    // Auto-refresh every 5 seconds
+                    setInterval(() => this.refreshData(), 5000);
+                },
+
+                async refreshData() {
+                    try {
+                        // Get portfolio status
+                        const portfolioResponse = await fetch('/trading/portfolio');
+                        this.portfolio = await portfolioResponse.json();
+
+                        // Get recent orders
+                        const ordersResponse = await fetch('/trading/orders');
+                        this.orders = await ordersResponse.json();
+
+                        // Get engine status
+                        const statusResponse = await fetch('/trading/engine/status');
+                        this.engineStatus = await statusResponse.json();
+                    } catch (error) {
+                        console.error('Failed to refresh data:', error);
+                    }
+                },
+
+                async startEngine() {
+                    try {
+                        await fetch('/trading/engine/start', { method: 'POST' });
+                        await this.refreshData();
+                    } catch (error) {
+                        console.error('Failed to start engine:', error);
+                    }
+                },
+
+                async stopEngine() {
+                    try {
+                        await fetch('/trading/engine/stop', { method: 'POST' });
+                        await this.refreshData();
+                    } catch (error) {
+                        console.error('Failed to stop engine:', error);
+                    }
+                },
+
+                async runBacktest() {
+                    this.backtesting = true;
+                    try {
+                        const response = await fetch(`/backtesting/quick-test?days=${this.backtestDays}&min_confidence=${this.minConfidence}`);
+                        this.backtestResults = await response.json();
+                    } catch (error) {
+                        console.error('Backtest failed:', error);
+                    } finally {
+                        this.backtesting = false;
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

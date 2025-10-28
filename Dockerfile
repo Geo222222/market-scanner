@@ -20,7 +20,7 @@ COPY alembic ./alembic
 COPY src ./src
 COPY tests ./tests
 
-CMD ["uvicorn", "market_scanner.app:app", "--host", "0.0.0.0", "--port", "8010"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8010"]
 
 # ONNYX | ONNX | DJM | DJ | ME | Jamaica ??" signature watermark
 # Owner: DJM (ONNYX) ??" Jamaica. If found elsewhere, contact ME.
