@@ -20,6 +20,7 @@ def client(monkeypatch):
     snapshots = [
         SymbolSnapshot(
             symbol="AAA/USDT:USDT",
+            exchange="htx",  # Required field
             qvol_usdt=80_000_000,
             spread_bps=2.0,
             top5_depth_usdt=4_000_000,
@@ -37,6 +38,7 @@ def client(monkeypatch):
         ),
         SymbolSnapshot(
             symbol="BBB/USDT:USDT",
+            exchange="htx",  # Required field
             qvol_usdt=60_000_000,
             spread_bps=3.2,
             top5_depth_usdt=3_500_000,

@@ -13,6 +13,7 @@ from market_scanner.routers import symbols as symbols_router
 async def test_symbol_inspect(monkeypatch):
     snapshot = SymbolSnapshot(
         symbol='BTC/USDT:USDT',
+        exchange='htx',  # Required field
         qvol_usdt=80_000_000,
         spread_bps=4.0,
         top5_depth_usdt=1_200_000,

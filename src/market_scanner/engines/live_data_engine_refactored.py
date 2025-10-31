@@ -15,6 +15,13 @@ import ccxt
 
 from ..config import get_settings
 from .mock_data import mock_data_generator
+from ..data_integrity import (
+    is_strict_mode,
+    is_permissive_mode,
+    log_data_error,
+    log_data_success,
+    DataSource
+)
 
 logger = logging.getLogger(__name__)
 
@@ -134,11 +141,16 @@ class LiveDataEngineRefactored:
         """
         results = {}
         
-        # Use mock data if configured
+        # Use mock data if configured (only allowed in permissive mode)
         if self.settings.use_mock_data:
-            for symbol in symbols:
-                results[symbol] = self._get_mock_data(symbol)
-            return results
+            if is_permissive_mode():
+                logger.info("PERMISSIVE MODE: Using mock data (use_mock_data=True)")
+                for symbol in symbols:
+                    results[symbol] = self._get_mock_data(symbol)
+                return results
+            else:
+                logger.error("STRICT MODE: use_mock_data=True is not allowed in strict mode")
+                raise ValueError("Mock data is not allowed in strict mode. Set FALLBACK_POLICY=permissive or use_mock_data=False")
         
         # Fetch from real exchanges (non-blocking)
         for symbol in symbols:
@@ -176,15 +188,40 @@ class LiveDataEngineRefactored:
                         logger.debug(f"Error fetching {symbol} from {exchange_name}: {e}")
                         continue
                 
-                # Fallback to deterministic mock if all exchanges fail
+                # Handle missing data based on FALLBACK_POLICY
                 if symbol not in results:
-                    logger.info(f"Using mock data for {symbol} (exchange fetch failed)")
-                    results[symbol] = self._get_mock_data(symbol)
-                    
+                    if is_strict_mode():
+                        # In strict mode: log error and skip symbol (no fallback)
+                        log_data_error(
+                            exchange="all",
+                            symbol=symbol,
+                            operation="fetch_ticker",
+                            error="All exchanges failed",
+                            retries=len(self.exchanges)
+                        )
+                        logger.warning(f"STRICT MODE: Skipping {symbol} - no data available from any exchange")
+                    else:
+                        # In permissive mode: allow mock data with explicit labeling
+                        logger.info(f"PERMISSIVE MODE: Using mock data for {symbol} (exchange fetch failed)")
+                        results[symbol] = self._get_mock_data(symbol)
+
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
-                # Always provide data, even if mock
-                results[symbol] = self._get_mock_data(symbol)
+
+                if is_strict_mode():
+                    # In strict mode: log error and skip symbol
+                    log_data_error(
+                        exchange="unknown",
+                        symbol=symbol,
+                        operation="process_ticker",
+                        error=str(e),
+                        retries=0
+                    )
+                    logger.warning(f"STRICT MODE: Skipping {symbol} due to processing error")
+                else:
+                    # In permissive mode: provide mock data
+                    logger.info(f"PERMISSIVE MODE: Using mock data for {symbol} after error")
+                    results[symbol] = self._get_mock_data(symbol)
         
         return results
     

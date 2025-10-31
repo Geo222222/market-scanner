@@ -1,4 +1,6 @@
-﻿from datetime import datetime, timezone
+from __future__ import annotations
+
+from datetime import datetime, timezone
 
 import pytest
 
@@ -26,6 +28,7 @@ def make_snapshot(
 ) -> SymbolSnapshot:
     return SymbolSnapshot(
         symbol=symbol,
+        exchange="htx",  # Required field
         qvol_usdt=qvol,
         spread_bps=spread,
         top5_depth_usdt=depth,

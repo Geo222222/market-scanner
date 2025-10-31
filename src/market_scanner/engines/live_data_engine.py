@@ -11,6 +11,14 @@ from datetime import datetime
 import ccxt
 import random
 
+from ..data_integrity import (
+    is_strict_mode,
+    is_permissive_mode,
+    log_data_error,
+    log_data_success,
+    DataSource
+)
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -88,41 +96,67 @@ class LiveDataEngine:
                         logger.error(f"Error fetching {symbol} from {exchange_name}: {e}")
                         continue
                 
-                # Fallback to realistic mock data
+                # Handle missing data based on FALLBACK_POLICY
                 if symbol not in results:
+                    if is_strict_mode():
+                        # In strict mode: log error and skip symbol (no fallback)
+                        log_data_error(
+                            exchange="all",
+                            symbol=symbol,
+                            operation="fetch_ticker",
+                            error="All exchanges failed",
+                            retries=len(self.exchanges)
+                        )
+                        logger.warning(f"STRICT MODE: Skipping {symbol} - no data available from any exchange")
+                    else:
+                        # In permissive mode: allow mock data with explicit labeling
+                        base_price = self._get_base_price(symbol)
+                        price_variation = random.uniform(0.95, 1.05)
+                        current_price = base_price * price_variation
+
+                        results[symbol] = LiveMarketData(
+                            symbol=symbol,
+                            price=current_price,
+                            volume=random.uniform(1000000, 50000000),
+                            spread=random.uniform(0.1, 2.0),
+                            change_24h=random.uniform(-10, 10),
+                            high_24h=current_price * random.uniform(1.01, 1.05),
+                            low_24h=current_price * random.uniform(0.95, 0.99),
+                            timestamp=datetime.now(),
+                            exchange="mock",  # Changed from "fallback" to "mock"
+                            status="mock"     # Explicit mock labeling
+                        )
+                        logger.info(f"PERMISSIVE MODE: Using mock data for {symbol}")
+
+            except Exception as e:
+                logger.error(f"Error processing ticker data for {symbol}: {e}")
+
+                if is_strict_mode():
+                    # In strict mode: log error and skip symbol
+                    log_data_error(
+                        exchange="unknown",
+                        symbol=symbol,
+                        operation="process_ticker",
+                        error=str(e),
+                        retries=0
+                    )
+                    logger.warning(f"STRICT MODE: Skipping {symbol} due to processing error")
+                else:
+                    # In permissive mode: create mock data
                     base_price = self._get_base_price(symbol)
-                    price_variation = random.uniform(0.95, 1.05)
-                    current_price = base_price * price_variation
-                    
                     results[symbol] = LiveMarketData(
                         symbol=symbol,
-                        price=current_price,
+                        price=base_price,
                         volume=random.uniform(1000000, 50000000),
                         spread=random.uniform(0.1, 2.0),
                         change_24h=random.uniform(-10, 10),
-                        high_24h=current_price * random.uniform(1.01, 1.05),
-                        low_24h=current_price * random.uniform(0.95, 0.99),
+                        high_24h=base_price * 1.02,
+                        low_24h=base_price * 0.98,
                         timestamp=datetime.now(),
-                        exchange="fallback",
-                        status="fallback"
+                        exchange="mock",
+                        status="mock"
                     )
-                    
-            except Exception as e:
-                logger.error(f"Error processing ticker data for {symbol}: {e}")
-                # Create fallback data
-                base_price = self._get_base_price(symbol)
-                results[symbol] = LiveMarketData(
-                    symbol=symbol,
-                    price=base_price,
-                    volume=random.uniform(1000000, 50000000),
-                    spread=random.uniform(0.1, 2.0),
-                    change_24h=random.uniform(-10, 10),
-                    high_24h=base_price * 1.02,
-                    low_24h=base_price * 0.98,
-                    timestamp=datetime.now(),
-                    exchange="fallback",
-                    status="fallback"
-                )
+                    logger.info(f"PERMISSIVE MODE: Using mock data for {symbol} after error")
         
         return results
     
