@@ -12,7 +12,7 @@ from typing import Any, Mapping, Optional
 
 from ..adapters.ccxt_adapter import AdapterError, CCXTAdapter
 from ..config import get_settings
-from ..data_integrity import is_strict_mode, is_permissive_mode, log_data_error
+from ..data_integrity import is_strict_mode, is_permissive_mode, log_data_error, exchange_tracker
 from ..core.metrics import (
     SymbolSnapshot,
     atr_pct,
@@ -243,11 +243,36 @@ async def _build_snapshot(adapter: CCXTAdapter, symbol: str) -> SnapshotBundle |
         ohlcv_task = adapter.fetch_ohlcv(symbol, settings.timeframe, 200)
         ticker, orderbook, ohlcv = await asyncio.gather(ticker_task, orderbook_task, ohlcv_task)
         LOGGER.debug(f"✅ Successfully fetched data for {symbol}")
+
+        # Record success in exchange tracker
+        fetch_latency_ms = (time.perf_counter() - fetch_started) * 1000
+        exchange_tracker.record_success(adapter.exchange_id, int(fetch_latency_ms))
+
     except AdapterError as exc:
-        LOGGER.error(f"❌ Adapter fetch failed for {symbol}: {exc}")
+        # Check if this is a circuit breaker error
+        error_msg = str(exc)
+        if "circuit open" in error_msg.lower():
+            # Circuit breaker is open - log once at DEBUG level (not per symbol)
+            LOGGER.debug(f"Circuit breaker open for {symbol} on {adapter.exchange_id}")
+        else:
+            # Other adapter errors - use structured logging
+            log_data_error(
+                exchange=adapter.exchange_id,
+                symbol=symbol,
+                operation="fetch_market_data",
+                error=error_msg,
+                retries=3  # CCXTAdapter retries 3 times internally
+            )
         return None
     except Exception as exc:
-        LOGGER.error(f"❌ Unexpected fetch error for {symbol}: {exc}")
+        # Unexpected errors - use structured logging
+        log_data_error(
+            exchange=adapter.exchange_id,
+            symbol=symbol,
+            operation="fetch_market_data",
+            error=str(exc),
+            retries=0
+        )
         return None
     fetch_latency_ms = (time.perf_counter() - fetch_started) * 1000
 
@@ -725,11 +750,28 @@ async def run_cycle(profile: str) -> tuple[list[SnapshotBundle], list[SymbolSnap
     async with CCXTAdapter() as adapter:
         symbols = await _load_symbols(adapter)
         adapter_state = adapter.snapshot_state()
+
+        # Log circuit breaker state summary (once per cycle, not per symbol)
+        if adapter_state.get("state") == "open":
+            cooldown = adapter_state.get("cooldown_remaining", 0)
+            LOGGER.warning(
+                f"Circuit breaker OPEN for {adapter.exchange_id} - "
+                f"cooldown remaining: {cooldown:.1f}s - "
+                f"skipping all symbols until recovery"
+            )
+        elif adapter_state.get("state") == "half-open":
+            LOGGER.info(f"Circuit breaker HALF-OPEN for {adapter.exchange_id} - attempting recovery")
+
         if not symbols:
             LOGGER.warning("No active perp symbols discovered; skipping cycle.")
             return [], [], adapter_state
         bundles = await _collect_snapshots(adapter, symbols)
         adapter_state = adapter.snapshot_state()
+
+        # Log recovery if circuit breaker closed after being open
+        if adapter_state.get("state") == "closed" and adapter_state.get("fail_count", 0) == 0:
+            LOGGER.debug(f"Circuit breaker CLOSED for {adapter.exchange_id} - normal operation")
+
     if not bundles:
         return [], [], adapter_state
 
